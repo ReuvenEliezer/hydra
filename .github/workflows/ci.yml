@@ -38,7 +38,7 @@ jobs:
       # verify runs both Surefire (unit tests) and Failsafe (integration tests).
       #
       - name: Build & Run Tests
-        run: ./mvnw -B -fae verify
+        run: mvn -B -fae verify
 
       #
       # Publish JUnit reports in the GitHub Actions UI.
