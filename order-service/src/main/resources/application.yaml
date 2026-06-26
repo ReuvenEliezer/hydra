@@ -1,0 +1,23 @@
+server:
+  port: 8082
+spring:
+  application:
+    name: order-service
+#  mvc:
+#    format:
+#      date: iso
+#      date-time: iso
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_SERVICE_URL:http://localhost:8083}/.well-known/jwks.json
+          issuer-uri: ${AUTH_SERVICE_URL:http://localhost:8083}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized

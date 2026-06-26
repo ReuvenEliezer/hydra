@@ -1,0 +1,5 @@
+package com.reuven.auth.exception;
+
+public class BusinessRuleException extends RuntimeException {
+    public BusinessRuleException(String message) { super(message); }
+}

@@ -1,0 +1,19 @@
+server:
+  port: 8083
+spring:
+  profiles:
+    active: local
+  application:
+    name: auth-service
+  threads:
+    virtual:
+      enabled: true
+jwt:
+  key-id: "auth-service-key-v1"
+  issuer: hydra-auth-service
+  expiration-duration: PT1H
+#logging:
+#  level:
+#    root: DEBUG
+#    com.reuven.auth: DEBUG
+#    org.springframework: DEBUG

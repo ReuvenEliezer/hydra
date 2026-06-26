@@ -1,0 +1,50 @@
+databaseChangeLog:
+  - changeSet:
+      id: 20260621-01-initial-schema-with-roles
+      author: reuven
+      changes:
+        # טבלת Tenats (ללא שינוי)
+        - createTable:
+            tableName: tenants
+            columns:
+              - column: {name: id, type: uuid, constraints: {primaryKey: true}}
+              - column: {name: name, type: varchar(100), constraints: {nullable: false}}
+              - column: {name: status, type: varchar(30), constraints: {nullable: false}}
+              - column: {name: created_at, type: timestamp, constraints: {nullable: false}}
+
+        # טבלת Users (ללא עמודת Role!)
+        - createTable:
+            tableName: users
+            columns:
+              - column: {name: id, type: uuid, constraints: {primaryKey: true}}
+              - column: {name: tenant_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: username, type: varchar(50), constraints: {nullable: false}}
+              - column: {name: password_hash, type: varchar(255), constraints: {nullable: false}}
+              - column: {name: status, type: varchar(30), constraints: {nullable: false}}
+
+        # טבלת קישור לתפקידים (הפתרון לריבוי תפקידים)
+        - createTable:
+            tableName: user_roles
+            columns:
+              - column: {name: user_id, type: uuid, constraints: {nullable: false}}
+              - column: {name: role, type: varchar(30), constraints: {nullable: false}}
+
+        # אילוצים
+        - addForeignKeyConstraint:
+            baseTableName: users
+            baseColumnNames: tenant_id
+            referencedTableName: tenants
+            referencedColumnNames: id
+            constraintName: fk_users_tenant
+
+        - addForeignKeyConstraint:
+            baseTableName: user_roles
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            constraintName: fk_user_roles_user
+
+        - addUniqueConstraint:
+            tableName: users
+            columnNames: tenant_id, username
+            constraintName: uq_users_tenant_username

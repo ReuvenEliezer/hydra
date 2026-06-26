@@ -1,0 +1,19 @@
+ # Used by CI for integration tests
+# Services here are ephemeral - no volumes, no restart
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: hydra-postgres-test
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data  # in-memory for speed
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
