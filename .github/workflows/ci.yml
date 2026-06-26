@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ master ]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # Single reactor build: the Maven reactor sorts module build order from the
+      # inter-module <dependency> declarations (security-common-starter and
+      # infra-database before auth-service/order-service, both before integration-tests),
+      # so there's no manual job-ordering to maintain here. -fae (fail-at-end) surfaces
+      # every failing module in one run instead of stopping at the first.
+      - name: Build & test full reactor
+        run: mvn -B -fae verify
+        # Testcontainers (integration-tests, and any service-level Testcontainers tests)
+        # needs Docker - ubuntu-latest ships it pre-installed, no extra service/setup needed.
+
+      - name: Surface test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/*.txt'
+          retention-days: 7

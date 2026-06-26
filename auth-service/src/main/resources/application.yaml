@@ -1,6 +1,9 @@
 server:
   port: 8083
 spring:
+  output:
+    ansi:
+      enabled: always
   profiles:
     active: local
   application:
