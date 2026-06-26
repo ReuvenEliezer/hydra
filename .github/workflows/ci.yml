@@ -44,15 +44,15 @@ jobs:
       # Publish JUnit reports in the GitHub Actions UI.
       #
       - name: Publish Test Report
-        if: success() || failure()
+        if: always()
         uses: dorny/test-reporter@v2.1.0
+        continue-on-error: true
         with:
           name: Maven Tests
           path: |
             **/target/surefire-reports/*.xml
             **/target/failsafe-reports/*.xml
           reporter: java-junit
-          fail-on-error: true
 
       #
       # Upload reports for debugging failed builds.
