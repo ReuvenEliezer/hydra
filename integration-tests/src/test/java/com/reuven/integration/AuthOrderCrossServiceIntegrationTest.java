@@ -165,7 +165,7 @@ class AuthOrderCrossServiceIntegrationTest {
         UUID tenantId = seedTenantAndAdmin();
         String adminToken = login("acme-admin", ADMIN_PASSWORD, tenantId);
 
-        registerUser(tenantId, adminToken, "jane.doe", USER_PASSWORD);
+        registerUser(tenantId, adminToken, "jane.doe");
         String userToken = login("jane.doe", USER_PASSWORD, tenantId);
 
         HttpHeaders headers = new HttpHeaders();
@@ -225,17 +225,17 @@ class AuthOrderCrossServiceIntegrationTest {
         return tenant.getId();
     }
 
-    private void registerUser(UUID tenantId, String adminToken, String username, String password) {
+    private void registerUser(UUID tenantId, String adminToken, String username) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(adminToken);
 
         String body = """
                 {"username": "%s", "password": "%s"}
-                """.formatted(username, password);
+                """.formatted(username, AuthOrderCrossServiceIntegrationTest.USER_PASSWORD);
 
         ResponseEntity<AuthResponse> response = REST.exchange(
-                authUrl("/api/v1/tenants/" + tenantId + "/users/register"),
+                authUrl("/api/v1/admin/register-user"),
                 HttpMethod.POST,
                 new HttpEntity<>(body, headers),
                 AuthResponse.class
@@ -259,15 +259,15 @@ class AuthOrderCrossServiceIntegrationTest {
                 {"username": "%s", "password": "%s"}
                 """.formatted(username, password);
 
-        ResponseEntity<Map> response = REST.exchange(
+        ResponseEntity<AuthResponse> response = REST.exchange(
                 authUrl("/api/v1/auth/login"),
                 HttpMethod.POST,
                 new HttpEntity<>(body, headers),
-                Map.class
+                AuthResponse.class
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        return (String) Objects.requireNonNull(response.getBody()).get("token");
+        return Objects.requireNonNull(response.getBody()).token();
     }
 
     private String authUrl(String path) {

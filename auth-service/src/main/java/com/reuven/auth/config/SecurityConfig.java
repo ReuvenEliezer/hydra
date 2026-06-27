@@ -63,11 +63,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/login").permitAll()
 
                 // 2. Tenant admin registration - Super Admin only
-                .requestMatchers("/api/v1/tenants/*/users/admin").hasAuthority("ROLE_SUPER_ADMIN")
+                .requestMatchers("/api/v1/admin/*/register-admin").hasAuthority("ROLE_SUPER_ADMIN")
 
                 // 3. Regular user registration - Admin or Super Admin
                 // Matching AdminController:
-                .requestMatchers("/api/v1/tenants/*/users/register").hasAnyAuthority("ROLE_SUPER_ADMIN", "ROLE_ADMIN")
+                .requestMatchers("/api/v1/admin/register-user").hasAnyAuthority("ROLE_SUPER_ADMIN", "ROLE_ADMIN")
 
                 .requestMatchers("/.well-known/jwks.json").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
