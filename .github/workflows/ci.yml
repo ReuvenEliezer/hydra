@@ -33,6 +33,9 @@ jobs:
           java-version: '25'
           cache: maven
 
+      - name: Verify Docker is reachable (Testcontainers needs this)
+        run: docker info
+
       # Separate build step from test step (mirrors local `mvn install` + `mvn test`):
       # a compile/packaging failure shows as its own red step, distinct from a test failure,
       # instead of both being buried inside one combined `verify` run.
