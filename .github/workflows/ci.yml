@@ -6,23 +6,24 @@ on:
   pull_request:
     branches: [ master ]
 
+# Least-privilege, not write-all: dorny/test-reporter needs `checks: write` to publish
+# a report, and `pull-requests: write` so it can annotate the PR itself. This also covers
+# dependabot-opened PRs (.github/dependabot.yml) - those run with a read-only GITHUB_TOKEN
+# by default, so the report wouldn't appear at all without explicitly granting this here.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
-
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4.2.2
 
       - name: Set up JDK 25
@@ -32,43 +33,54 @@ jobs:
           java-version: '25'
           cache: maven
 
-      #
-      # Build the complete Maven reactor.
-      # Module order is resolved automatically from inter-module dependencies.
-      # verify runs both Surefire (unit tests) and Failsafe (integration tests).
-      #
-      - name: Build & Run Tests
-        run: mvn -B -fae verify
+      # Separate build step from test step (mirrors local `mvn install` + `mvn test`):
+      # a compile/packaging failure shows as its own red step, distinct from a test failure,
+      # instead of both being buried inside one combined `verify` run.
+      - name: Build (compile & package, skip tests)
+        run: mvn -B clean install -DskipTests
 
-      #
-      # Publish JUnit reports in the GitHub Actions UI.
-      #
-      - name: Publish Test Report
-        if: always()
+      # One mvn invocation for the whole reactor - no docker-compose, no service-registry
+      # wait. integration-tests starts both real Spring contexts plus a Testcontainers
+      # Postgres in-process (random ports, no external orchestration needed), so it's just
+      # another reactor module here, not a separately stood-up environment.
+      # -fae (fail-at-end): surfaces every failing module in one run, not just the first.
+      - name: Run all tests
+        run: mvn -B -fae test
+
+      - name: Test report - auth-service
         uses: dorny/test-reporter@v2.1.0
-        continue-on-error: true
+        if: success() || failure()
         with:
-          name: Maven Tests
-          path: |
-            **/target/surefire-reports/*.xml
-            **/target/failsafe-reports/*.xml
+          name: Tests - auth-service
+          path: 'auth-service/target/surefire-reports/*.xml'
           reporter: java-junit
+          fail-on-error: true
 
-      #
-      # Upload reports for debugging failed builds.
-      #
-      - name: Upload Test Reports
+      - name: Test report - order-service
+        uses: dorny/test-reporter@v2.1.0
+        if: success() || failure()
+        with:
+          name: Tests - order-service
+          path: 'order-service/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Test report - cross-service integration
+        uses: dorny/test-reporter@v2.1.0
+        if: success() || failure()
+        with:
+          name: Tests - integration-tests
+          path: 'integration-tests/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: true
+
+      # security-common-starter and infra-database have no tests yet - add a report step
+      # for each here the day that changes, same pattern as above.
+
+      - name: Upload raw surefire reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
-          path: |
-            **/target/surefire-reports/**
-            **/target/failsafe-reports/**
+          name: surefire-reports
+          path: '**/target/surefire-reports/*.txt'
           retention-days: 7
-
-      - name: Build Information
-        run: |
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Run Number: ${{ github.run_number }}"
-          echo "Run Attempt: ${{ github.run_attempt }}"

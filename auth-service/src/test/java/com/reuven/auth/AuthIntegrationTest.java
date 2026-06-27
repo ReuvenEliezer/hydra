@@ -58,7 +58,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         String expiredToken = jwtProvider.generateToken(superAdmin,
                 new Date(System.currentTimeMillis() - tokenValidityDuration.minus(Duration.ofMinutes(1)).toMillis())); // expired 1 min ago
 
-        mockMvc.perform(post("/api/v1/tenants/{tenantId}/users/admin", testTenant.getId())
+        mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
                         .header("Authorization", "Bearer " + expiredToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("ghost-admin", ADMIN_PASSWORD))))
@@ -68,7 +68,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Malformed bearer token is rejected with 401, not 500")
     void malformedToken_returns401() throws Exception {
-        mockMvc.perform(post("/api/v1/tenants/{tenantId}/users/admin", testTenant.getId())
+        mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
                         .header("Authorization", "Bearer not-a-real-jwt")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("ghost-admin", ADMIN_PASSWORD))))
@@ -161,7 +161,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Tenant admin (not super admin) gets 403 trying to register another admin")
     void registerAdmin_byTenantAdmin_returns403() throws Exception {
-        mockMvc.perform(post("/api/v1/tenants/{tenantId}/users/admin", testTenant.getId())
+        mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("another-admin", ADMIN_PASSWORD))))
@@ -171,7 +171,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("No Authorization header at all returns 401, not 403")
     void registerAdmin_noToken_returns401() throws Exception {
-        mockMvc.perform(post("/api/v1/tenants/{tenantId}/users/admin", testTenant.getId())
+        mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("ghost-admin", ADMIN_PASSWORD))))
                 .andExpect(status().isUnauthorized());
@@ -224,7 +224,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
                 passwordEncoder.encode(USER_PASSWORD), UserRole.USER, EntityStatus.ACTIVE));
         String userToken = loginAs("regular-joe", USER_PASSWORD, testTenant.getId());
 
-        mockMvc.perform(post("/api/v1/tenants/{tenantId}/users/register", testTenant.getId())
+        mockMvc.perform(post("/api/v1/admin/register-user", testTenant.getId())
                         .header("Authorization", "Bearer " + userToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("another-user", USER_PASSWORD))))

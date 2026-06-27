@@ -137,7 +137,6 @@ class OrderApiIntegrationTest {
     @Test
     @DisplayName("בדיקת GET API: התאמת LocalDate מה-URL")
     void shouldParseLocalDateFromQueryParam() throws Exception {
-        // ✅ נתיב מעודכן
         mockMvc.perform(get("/api/test-orders/search")
                         .param("date", "2026-06-19"))
                 .andExpect(status().isOk())
@@ -147,7 +146,6 @@ class OrderApiIntegrationTest {
     @Test
     @DisplayName("בדיקת GET API: התאמת Duration מתוך ה-URL (פורמט ISO-8601)")
     void shouldParseDurationFromQueryParam() throws Exception {
-        // ✅ נתיב מעודכן
         mockMvc.perform(get("/api/test-orders/by-duration")
                         .param("duration", "PT2H"))
                 .andExpect(status().isOk())
