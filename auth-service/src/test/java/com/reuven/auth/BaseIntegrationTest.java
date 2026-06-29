@@ -8,10 +8,9 @@ import com.reuven.auth.service.JwtProvider;
 import com.reuven.auth.service.KeyProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,13 +23,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Paths;
-import java.util.Objects;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD) // Reset Spring context after each test method to ensure isolation
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+// Reset Spring context after each test method to ensure isolation
 public abstract class BaseIntegrationTest {
 
     // Instance fields, not static: each test method gets a fresh Spring context reset by
@@ -47,32 +46,49 @@ public abstract class BaseIntegrationTest {
     @Container
     @ServiceConnection
     protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withReuse(true)
-            ;
+            .withReuse(true);
 
-    @Autowired protected MockMvc mockMvc;
-    @Autowired protected JsonMapper jsonMapper;
-    @Autowired protected TenantRepository tenantRepository;
-    @Autowired protected UserRepository userRepository;
-    @Autowired protected PasswordEncoder passwordEncoder;
-    @Autowired protected JwtProvider jwtProvider;
-    @Autowired protected KeyProvider keyProvider;
+    @Autowired
+    protected MockMvc mockMvc;
+    @Autowired
+    protected JsonMapper jsonMapper;
+    @Autowired
+    protected TenantRepository tenantRepository;
+    @Autowired
+    protected UserRepository userRepository;
+    @Autowired
+    protected PasswordEncoder passwordEncoder;
+    @Autowired
+    protected JwtProvider jwtProvider;
+    @Autowired
+    protected KeyProvider keyProvider;
 
     @DynamicPropertySource
     static void baseProperties(DynamicPropertyRegistry registry) throws Exception {
         // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
         // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
         // actual filesystem path rather than reading it into a String.
-        try {
-            String pemPath = Paths.get(
-                    Objects.requireNonNull(BaseIntegrationTest.class.getClassLoader()
-                            .getResource("test-private-key.pem")).toURI()
-            ).toAbsolutePath().toString();
-            registry.add("jwt.private-key-path", () -> pemPath);
-            registry.add("jwt.issuer", () -> "hydra-auth-service");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load test private key", e);
+        String path = System.getenv("JWT_PRIVATE_KEY_PATH");
+
+        if (path == null || path.isBlank()) {
+            // fallback ללוקל
+            var resource = BaseIntegrationTest.class
+                    .getClassLoader()
+                    .getResource("test-private-key.pem");
+
+            if (resource == null) {
+                throw new IllegalStateException("No JWT key found (env or test resource)");
+            }
+
+            try {
+                path = Paths.get(resource.toURI()).toString();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
+        String finalPath = path;
+        registry.add("jwt.private-key-path", () -> finalPath);
+        registry.add("jwt.issuer", () -> "hydra-auth-service");
     }
 
     @BeforeEach
