@@ -25,11 +25,9 @@ jobs:
     steps:
       - name: Create Private Key File from Secret
         run: |
-          mkdir -p keys
-
-          cat <<EOF > keys/private-key.pem
-          ${{ secrets.HYDRA_TEST_PRIVATE_KEY }}
-          EOF
+          mkdir -p $GITHUB_WORKSPACE/keys
+          echo "${{ secrets.HYDRA_TEST_PRIVATE_KEY }}" > $GITHUB_WORKSPACE/keys/private-key.pem
+          ls -l $GITHUB_WORKSPACE/keys
 #        shell: bash
 #        run: |
 #          cat <<EOF > test-private-key.pem
