@@ -7,9 +7,19 @@ import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
+
 
 @Configuration
 public class GeneralConfig {
+
+    // Real wall-clock time everywhere except tests, which construct their own
+    // JwtProvider with a Clock.fixed(...) instance to mint already-expired tokens
+    // deterministically (see AuthIntegrationTest.expiredToken_returns401).
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
 
     @Bean
     public JsonMapper jsonMapper() {

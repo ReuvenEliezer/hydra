@@ -22,8 +22,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -93,9 +92,10 @@ class AuthOrderCrossServiceIntegrationTest {
 //                .withDatabaseName("orders_db");
 //        orderPostgres.start();
 
-        String testPrivateKey = Files.readString(Path.of(
+        String testPrivateKeyPath = Paths.get(
                 Objects.requireNonNull(AuthOrderCrossServiceIntegrationTest.class.getClassLoader()
-                        .getResource("test-private-key.pem")).toURI()));
+                        .getResource("test-private-key.pem")).toURI()
+        ).toAbsolutePath().toString();
 
         // IMPORTANT: application-test.yml already defines spring.datasource.url as
         // ${DB_URL:jdbc:postgresql://localhost:5432/auth_db} - a placeholder that resolves
@@ -113,7 +113,7 @@ class AuthOrderCrossServiceIntegrationTest {
         authApp.setDefaultProperties(Map.ofEntries(
                 Map.entry("server.port", "0"),
                 Map.entry("spring.profiles.active", "local"),
-                Map.entry("jwt.private-key", testPrivateKey)
+                Map.entry("jwt.private-key-path", testPrivateKeyPath)
         ));
         authContext = authApp.run(
                 "--server.port=0",

@@ -23,6 +23,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Create Private Key File from Secret
+        run: |
+          mkdir -p keys
+
+          cat <<EOF > keys/private-key.pem
+          ${{ secrets.HYDRA_TEST_PRIVATE_KEY }}
+          EOF
+#        shell: bash
+#        run: |
+#          cat <<EOF > test-private-key.pem
+#          ${{ secrets.HYDRA_TEST_PRIVATE_KEY }}
+#          EOF
+        env:
+#          SPRING_PROFILES_ACTIVE: local
+          JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/private-key.pem
       - name: Checkout
         uses: actions/checkout@v4.2.2
 

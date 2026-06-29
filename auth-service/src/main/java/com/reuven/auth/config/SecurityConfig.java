@@ -2,7 +2,6 @@ package com.reuven.auth.config;
 
 import com.reuven.auth.service.JwtAuthenticationFilter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -17,11 +16,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
-import java.security.KeyFactory;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Base64;
 
 @Slf4j
 @Configuration
@@ -74,20 +68,6 @@ public class SecurityConfig {
 
                 // 4. Other requests require authentication
                 .anyRequest().authenticated();
-    }
-
-    // Adding missing imports that were missing in your code snippet
-    @Bean
-    public RSAPrivateKey jwtPrivateKey(@Value("${jwt.private-key}") String privateKeyContent) throws Exception {
-        String privateKeyPEM = privateKeyContent
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replaceAll("\\s", "");
-
-        byte[] encoded = Base64.getDecoder().decode(privateKeyPEM);
-        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encoded);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
     }
 
     @Bean

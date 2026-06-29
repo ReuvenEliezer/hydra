@@ -5,6 +5,7 @@ import com.reuven.auth.entity.User;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
 import com.reuven.auth.service.JwtProvider;
+import com.reuven.auth.service.KeyProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -22,7 +23,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Objects;
 
@@ -50,33 +50,25 @@ public abstract class BaseIntegrationTest {
             .withReuse(true)
             ;
 
-    static {
-        System.out.println("Starting PostgreSQL Container...");
-        postgres.start();
-    }
-
     @Autowired protected MockMvc mockMvc;
     @Autowired protected JsonMapper jsonMapper;
     @Autowired protected TenantRepository tenantRepository;
     @Autowired protected UserRepository userRepository;
     @Autowired protected PasswordEncoder passwordEncoder;
     @Autowired protected JwtProvider jwtProvider;
+    @Autowired protected KeyProvider keyProvider;
 
     @DynamicPropertySource
     static void baseProperties(DynamicPropertyRegistry registry) throws Exception {
-        // Valid RSA key in Base64 format (shortened but structurally valid)
-        // Note: In this test we will use a valid dummy key
-
-        // Clean loading from file
+        // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
+        // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
+        // actual filesystem path rather than reading it into a String.
         try {
-
-//            openssl genrsa -out private.pem 2048
-//            openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in private.pem -out test-private-key.pem
-
-            String pemKey = new String(Files.readAllBytes(Paths.get(
-                Objects.requireNonNull(BaseIntegrationTest.class.getClassLoader()
-                        .getResource("test-private-key.pem")).toURI())));
-            registry.add("jwt.private-key", () -> pemKey);
+            String pemPath = Paths.get(
+                    Objects.requireNonNull(BaseIntegrationTest.class.getClassLoader()
+                            .getResource("test-private-key.pem")).toURI()
+            ).toAbsolutePath().toString();
+            registry.add("jwt.private-key-path", () -> pemPath);
             registry.add("jwt.issuer", () -> "hydra-auth-service");
         } catch (Exception e) {
             throw new RuntimeException("Failed to load test private key", e);
