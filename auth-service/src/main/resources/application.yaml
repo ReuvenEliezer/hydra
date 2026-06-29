@@ -26,6 +26,7 @@ jwt:
   key-id: "auth-service-key-v1"
   issuer: hydra-auth-service
   expiration-duration: PT1H
+  cache-max-age-duration: PT15M
 #logging:
 #  level:
 #    root: DEBUG

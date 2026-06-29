@@ -72,7 +72,7 @@ public abstract class BaseIntegrationTest {
         String path = System.getenv("JWT_PRIVATE_KEY_PATH");
 
         if (path == null || path.isBlank()) {
-            // fallback ללוקל
+            // fallback for local
             URL resource = BaseIntegrationTest.class
                     .getClassLoader()
                     .getResource("test-private-key.pem");
