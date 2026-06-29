@@ -82,29 +82,16 @@ abstract class AbstractRsaKeyProvider implements KeyProvider {
         }
     }
 
-//    protected static RSAPrivateKey loadPrivateKeyFromPath(String path) {
-//        Resource resource = new FileSystemResource(path);
-//        try {
-//            return parsePkcs8PrivateKey(resource.getInputStream(), resource.getDescription());
-//        } catch (IOException e) {
-//            throw new KeyProviderException("Could not read private key resource: " + resource.getDescription(), e);
-//        }
-//    }
-
-    //TODO remove
     protected static RSAPrivateKey loadPrivateKeyFromPath(String path) {
         Resource resource = new FileSystemResource(path);
-
         try {
             log.info("Loading key from: {}", resource.getFile().getAbsolutePath());
             log.info("Exists: {}", resource.exists());
 
-            try (InputStream is = resource.getInputStream()) {
-                return parsePkcs8PrivateKey(is, resource.getDescription());
-            }
-
+            return parsePkcs8PrivateKey(resource.getInputStream(), resource.getDescription());
         } catch (IOException e) {
-            throw new KeyProviderException("Could not read private key", e);
+            throw new KeyProviderException("Could not read private key resource: " + resource.getDescription(), e);
         }
     }
+
 }
