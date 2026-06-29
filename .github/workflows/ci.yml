@@ -59,7 +59,11 @@ jobs:
         env:
           JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/private-key.pem
         run: mvn -B -fae test
-
+      - name: Debug runtime path
+        run: |
+          echo "EXPECTED PATH: $GITHUB_WORKSPACE/keys/private-key.pem"
+          ls -l $GITHUB_WORKSPACE/keys/private-key.pem || true
+          head -n 5 $GITHUB_WORKSPACE/keys/private-key.pem
       - name: Test report - auth-service
         uses: dorny/test-reporter@v2.1.0
         if: success() || failure()
