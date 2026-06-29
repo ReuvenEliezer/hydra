@@ -40,7 +40,7 @@ import java.util.UUID;
 public class JwtProvider {
 
     private static final JWSAlgorithm SIGNING_ALGORITHM = JWSAlgorithm.RS256;
-    private static final long CLOCK_SKEW_SECONDS = 30;
+    private static final int CLOCK_SKEW_SECONDS = 30;
 
     private final Clock clock; // Clock.systemUTC() in prod (see GeneralConfig); Clock.fixed(...) in tests
     private final String issuer;
@@ -80,7 +80,7 @@ public class JwtProvider {
                 new JWTClaimsSet.Builder().issuer(issuer).build(),
                 Set.of("sub", "exp", "iat", "tenantId")
         );
-        claimsVerifier.setMaxClockSkew((int) CLOCK_SKEW_SECONDS);
+        claimsVerifier.setMaxClockSkew(CLOCK_SKEW_SECONDS);
         this.jwtProcessor.setJWTClaimsSetVerifier(claimsVerifier);
     }
 
