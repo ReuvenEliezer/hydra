@@ -17,4 +17,4 @@ spring:
         web-allow-others: false
         trace: false
 jwt:
-  private-key-path: ${JWT_PRIVATE_KEY_PATH:${user.home}/.authenticator/keys/private-key.pem}
+  private-key-path: ${JWT_PRIVATE_KEY_PATH}

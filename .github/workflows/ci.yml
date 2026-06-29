@@ -29,7 +29,7 @@ jobs:
       - name: Create private key file
         run: |
           mkdir -p $GITHUB_WORKSPACE/keys
-          printf "%s" "${{ secrets.HYDRA_TEST_PRIVATE_KEY }}" > $GITHUB_WORKSPACE/keys/test-private-key.pem
+          echo "${{ secrets.HYDRA_TEST_PRIVATE_KEY }}" > $GITHUB_WORKSPACE/keys/test-private-key.pem
           ls -l $GITHUB_WORKSPACE/keys
       - name: Verify key
         run: |

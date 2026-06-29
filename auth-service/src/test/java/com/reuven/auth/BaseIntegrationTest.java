@@ -22,6 +22,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URL;
 import java.nio.file.Paths;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -72,7 +73,7 @@ public abstract class BaseIntegrationTest {
 
         if (path == null || path.isBlank()) {
             // fallback ללוקל
-            var resource = BaseIntegrationTest.class
+            URL resource = BaseIntegrationTest.class
                     .getClassLoader()
                     .getResource("test-private-key.pem");
 
