@@ -56,6 +56,8 @@ jobs:
       # another reactor module here, not a separately stood-up environment.
       # -fae (fail-at-end): surfaces every failing module in one run, not just the first.
       - name: Run all tests
+        env:
+          JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/private-key.pem
         run: mvn -B -fae test
 
       - name: Test report - auth-service
