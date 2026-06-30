@@ -1,0 +1,2 @@
+jwt:
+  private-key-path: ${JWT_PRIVATE_KEY_PATH}

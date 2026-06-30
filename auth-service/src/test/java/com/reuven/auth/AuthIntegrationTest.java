@@ -7,6 +7,7 @@ import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
 import com.reuven.auth.entity.UserRole;
+import com.reuven.auth.service.JwtProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,8 +17,10 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
+import java.time.Clock;
 import java.time.Duration;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,8 +31,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("Auth Integration Tests")
 class AuthIntegrationTest extends BaseIntegrationTest {
 
-    // JwtProvider isn't on the base class - only this test class needs it directly,
-    // to mint an expired token for the token-validation tests below.
+    // JwtProvider and KeyProvider are autowired on the base class. We only need the
+    // issuer/key-id values directly here, to build a second JwtProvider below that
+    // shares the same key material but runs on a Clock.fixed(...) in the past - that's
+    // what lets us mint a deterministically-expired token without depending on
+    // tokenValidityDuration's exact magnitude (see expiredToken_returns401).
+
+    @Value("${jwt.issuer:hydra-auth-service}")
+    String issuer;
+
+    @Value("${jwt.key-id:hydra-auth-key-1}")
+    String keyId;
 
     @Value("${jwt.expiration-duration:PT1H}")
     Duration tokenValidityDuration;
@@ -55,8 +67,15 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Expired token is rejected with 401 when used against a protected endpoint")
     void expiredToken_returns401() throws Exception {
-        String expiredToken = jwtProvider.generateToken(superAdmin,
-                new Date(System.currentTimeMillis() - tokenValidityDuration.minus(Duration.ofMinutes(1)).toMillis())); // expired 1 min ago
+        // "now" minus the full validity window minus one more minute -> exp always lands
+        // exactly one minute in the past, regardless of how long tokenValidityDuration is.
+        Clock oneMinuteAgoClock = Clock.fixed(
+                Instant.now().minus(tokenValidityDuration).minus(Duration.ofMinutes(1)),
+                ZoneOffset.UTC);
+        JwtProvider expiredTokenProvider =
+                new JwtProvider(keyProvider, oneMinuteAgoClock, issuer, keyId, tokenValidityDuration);
+
+        String expiredToken = expiredTokenProvider.generateToken(superAdmin);
 
         mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
                         .header("Authorization", "Bearer " + expiredToken)

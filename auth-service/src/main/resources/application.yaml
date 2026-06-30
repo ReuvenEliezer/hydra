@@ -8,13 +8,25 @@ spring:
     active: local
   application:
     name: auth-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/auth_db}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
   threads:
     virtual:
       enabled: true
 jwt:
+  secret-name: "hydra-aws-secret-name"
   key-id: "auth-service-key-v1"
   issuer: hydra-auth-service
   expiration-duration: PT1H
+  cache-max-age-duration: PT15M
 #logging:
 #  level:
 #    root: DEBUG

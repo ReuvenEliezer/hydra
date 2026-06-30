@@ -14,16 +14,18 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -93,9 +95,24 @@ class AuthOrderCrossServiceIntegrationTest {
 //                .withDatabaseName("orders_db");
 //        orderPostgres.start();
 
-        String testPrivateKey = Files.readString(Path.of(
-                Objects.requireNonNull(AuthOrderCrossServiceIntegrationTest.class.getClassLoader()
-                        .getResource("test-private-key.pem")).toURI()));
+        String path = System.getenv("JWT_PRIVATE_KEY_PATH");
+
+        if (path == null || path.isBlank()) {
+            // fallback for local
+            URL resource = AuthOrderCrossServiceIntegrationTest.class
+                    .getClassLoader()
+                    .getResource("test-private-key.pem");
+
+            if (resource == null) {
+                throw new IllegalStateException("No JWT key found (env or test resource)");
+            }
+
+            try {
+                path = Paths.get(resource.toURI()).toString();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
 
         // IMPORTANT: application-test.yml already defines spring.datasource.url as
         // ${DB_URL:jdbc:postgresql://localhost:5432/auth_db} - a placeholder that resolves
@@ -113,7 +130,9 @@ class AuthOrderCrossServiceIntegrationTest {
         authApp.setDefaultProperties(Map.ofEntries(
                 Map.entry("server.port", "0"),
                 Map.entry("spring.profiles.active", "local"),
-                Map.entry("jwt.private-key", testPrivateKey)
+//                Map.entry("jwt.private-key-path", path),
+                Map.entry("JWT_PRIVATE_KEY_PATH", path),
+                Map.entry("app.bootstrap.super-admin-password", "pass")
         ));
         authContext = authApp.run(
                 "--server.port=0",
@@ -129,7 +148,7 @@ class AuthOrderCrossServiceIntegrationTest {
 //        System.setProperty("DB_USERNAME", orderPostgres.getUsername());
 //        System.setProperty("DB_PASSWORD", orderPostgres.getPassword());
 
-        // order-service's base application.yaml defines jwk-set-uri/issuer-uri via
+        // order-service's base application.yml defines jwk-set-uri/issuer-uri via
         // ${AUTH_SERVICE_URL:http://localhost:8083}/... - another placeholder that sits
         // above setDefaultProperties() in precedence. Setting AUTH_SERVICE_URL itself
         // (to auth-service's ACTUAL random port, not the hardcoded 8083 default) is what

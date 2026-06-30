@@ -26,6 +26,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4.2.2
 
+      - name: Create private key file
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/keys
+          echo "${{ secrets.HYDRA_TEST_PRIVATE_KEY }}" > $GITHUB_WORKSPACE/keys/test-private-key.pem
+          ls -l $GITHUB_WORKSPACE/keys
+      - name: Verify key
+        run: |
+          cat $GITHUB_WORKSPACE/keys/test-private-key.pem | wc -l
       - name: Set up JDK 25
         uses: actions/setup-java@v4.7.1
         with:
@@ -48,8 +56,14 @@ jobs:
       # another reactor module here, not a separately stood-up environment.
       # -fae (fail-at-end): surfaces every failing module in one run, not just the first.
       - name: Run all tests
+        env:
+          JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/test-private-key.pem
         run: mvn -B -fae test
-
+      - name: Debug runtime path
+        run: |
+          echo "EXPECTED PATH: $GITHUB_WORKSPACE/keys/test-private-key.pem"
+          ls -l $GITHUB_WORKSPACE/keys/test-private-key.pem || true
+          head -n 5 $GITHUB_WORKSPACE/keys/test-private-key.pem
       - name: Test report - auth-service
         uses: dorny/test-reporter@v2.1.0
         if: success() || failure()

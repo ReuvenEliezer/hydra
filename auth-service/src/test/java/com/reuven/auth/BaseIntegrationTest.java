@@ -5,12 +5,12 @@ import com.reuven.auth.entity.User;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
 import com.reuven.auth.service.JwtProvider;
+import com.reuven.auth.service.KeyProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -22,15 +22,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.nio.file.Files;
+import java.net.URL;
 import java.nio.file.Paths;
-import java.util.Objects;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD) // Reset Spring context after each test method to ensure isolation
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+// Reset Spring context after each test method to ensure isolation
 public abstract class BaseIntegrationTest {
 
     // Instance fields, not static: each test method gets a fresh Spring context reset by
@@ -47,40 +47,49 @@ public abstract class BaseIntegrationTest {
     @Container
     @ServiceConnection
     protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withReuse(true)
-            ;
+            .withReuse(true);
 
-    static {
-        System.out.println("Starting PostgreSQL Container...");
-        postgres.start();
-    }
-
-    @Autowired protected MockMvc mockMvc;
-    @Autowired protected JsonMapper jsonMapper;
-    @Autowired protected TenantRepository tenantRepository;
-    @Autowired protected UserRepository userRepository;
-    @Autowired protected PasswordEncoder passwordEncoder;
-    @Autowired protected JwtProvider jwtProvider;
+    @Autowired
+    protected MockMvc mockMvc;
+    @Autowired
+    protected JsonMapper jsonMapper;
+    @Autowired
+    protected TenantRepository tenantRepository;
+    @Autowired
+    protected UserRepository userRepository;
+    @Autowired
+    protected PasswordEncoder passwordEncoder;
+    @Autowired
+    protected JwtProvider jwtProvider;
+    @Autowired
+    protected KeyProvider keyProvider;
 
     @DynamicPropertySource
     static void baseProperties(DynamicPropertyRegistry registry) throws Exception {
-        // Valid RSA key in Base64 format (shortened but structurally valid)
-        // Note: In this test we will use a valid dummy key
+        // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
+        // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
+        // actual filesystem path rather than reading it into a String.
+        String path = System.getenv("JWT_PRIVATE_KEY_PATH");
 
-        // Clean loading from file
-        try {
+        if (path == null || path.isBlank()) {
+            // fallback for local
+            URL resource = BaseIntegrationTest.class
+                    .getClassLoader()
+                    .getResource("test-private-key.pem");
 
-//            openssl genrsa -out private.pem 2048
-//            openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in private.pem -out test-private-key.pem
+            if (resource == null) {
+                throw new IllegalStateException("No JWT key found (env or test resource)");
+            }
 
-            String pemKey = new String(Files.readAllBytes(Paths.get(
-                Objects.requireNonNull(BaseIntegrationTest.class.getClassLoader()
-                        .getResource("test-private-key.pem")).toURI())));
-            registry.add("jwt.private-key", () -> pemKey);
-            registry.add("jwt.issuer", () -> "hydra-auth-service");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load test private key", e);
+            try {
+                path = Paths.get(resource.toURI()).toString();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
+        String finalPath = path;
+        registry.add("jwt.private-key-path", () -> finalPath);
+        registry.add("jwt.issuer", () -> "hydra-auth-service");
     }
 
     @BeforeEach
