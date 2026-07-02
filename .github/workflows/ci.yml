@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6
       # Ephemeral, per-run RSA key for JWT signing in tests - NOT a real credential,
       # so it doesn't belong in any secrets store. This also removes the prior
       # dependency on Actions/Dependabot secrets being kept in sync, and eliminates
@@ -32,7 +32,7 @@ jobs:
             -pkeyopt rsa_keygen_bits:2048
           chmod 600 "$GITHUB_WORKSPACE/keys/test-private-key.pem"
       - name: Set up JDK 25
-        uses: actions/setup-java@v4.7.1
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
@@ -54,7 +54,7 @@ jobs:
           JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/test-private-key.pem
         run: mvn -B -fae test
       - name: Test report - auth-service
-        uses: dorny/test-reporter@v2.1.0
+        uses: dorny/test-reporter@v3
         if: success() || failure()
         with:
           name: Tests - auth-service
@@ -62,7 +62,7 @@ jobs:
           reporter: java-junit
           fail-on-error: true
       - name: Test report - order-service
-        uses: dorny/test-reporter@v2.1.0
+        uses: dorny/test-reporter@v3
         if: success() || failure()
         with:
           name: Tests - order-service
@@ -70,7 +70,7 @@ jobs:
           reporter: java-junit
           fail-on-error: true
       - name: Test report - cross-service integration
-        uses: dorny/test-reporter@v2.1.0
+        uses: dorny/test-reporter@v3
         if: success() || failure()
         with:
           name: Tests - integration-tests
