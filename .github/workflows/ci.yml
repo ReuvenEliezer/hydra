@@ -1,11 +1,9 @@
 name: CI
-
 on:
   push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-
 # Least-privilege, not write-all: dorny/test-reporter needs `checks: write` to publish
 # a report, and `pull-requests: write` so it can annotate the PR itself. This also covers
 # dependabot-opened PRs (.github/dependabot.yml) - those run with a read-only GITHUB_TOKEN
@@ -14,42 +12,38 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
-
-      - name: Create private key file
+      # Ephemeral, per-run RSA key for JWT signing in tests - NOT a real credential,
+      # so it doesn't belong in any secrets store. This also removes the prior
+      # dependency on Actions/Dependabot secrets being kept in sync, and eliminates
+      # key reuse across CI runs entirely (each run gets its own keypair).
+      - name: Generate ephemeral test signing key
         run: |
-          mkdir -p $GITHUB_WORKSPACE/keys
-          echo "${{ secrets.HYDRA_TEST_PRIVATE_KEY }}" > $GITHUB_WORKSPACE/keys/test-private-key.pem
-          ls -l $GITHUB_WORKSPACE/keys
-      - name: Verify key
-        run: |
-          cat $GITHUB_WORKSPACE/keys/test-private-key.pem | wc -l
+          mkdir -p "$GITHUB_WORKSPACE/keys"
+          openssl genpkey -algorithm RSA -out "$GITHUB_WORKSPACE/keys/test-private-key.pem" \
+            -pkeyopt rsa_keygen_bits:2048
+          chmod 600 "$GITHUB_WORKSPACE/keys/test-private-key.pem"
       - name: Set up JDK 25
         uses: actions/setup-java@v4.7.1
         with:
           distribution: temurin
           java-version: '25'
           cache: maven
-
       - name: Verify Docker is reachable (Testcontainers needs this)
         run: docker info
-
       # Separate build step from test step (mirrors local `mvn install` + `mvn test`):
       # a compile/packaging failure shows as its own red step, distinct from a test failure,
       # instead of both being buried inside one combined `verify` run.
       - name: Build (compile & package, skip tests)
         run: mvn -B clean install -DskipTests
-
       # One mvn invocation for the whole reactor - no docker-compose, no service-registry
       # wait. integration-tests starts both real Spring contexts plus a Testcontainers
       # Postgres in-process (random ports, no external orchestration needed), so it's just
@@ -59,11 +53,6 @@ jobs:
         env:
           JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/test-private-key.pem
         run: mvn -B -fae test
-      - name: Debug runtime path
-        run: |
-          echo "EXPECTED PATH: $GITHUB_WORKSPACE/keys/test-private-key.pem"
-          ls -l $GITHUB_WORKSPACE/keys/test-private-key.pem || true
-          head -n 5 $GITHUB_WORKSPACE/keys/test-private-key.pem
       - name: Test report - auth-service
         uses: dorny/test-reporter@v2.1.0
         if: success() || failure()
@@ -72,7 +61,6 @@ jobs:
           path: 'auth-service/target/surefire-reports/*.xml'
           reporter: java-junit
           fail-on-error: true
-
       - name: Test report - order-service
         uses: dorny/test-reporter@v2.1.0
         if: success() || failure()
@@ -81,7 +69,6 @@ jobs:
           path: 'order-service/target/surefire-reports/*.xml'
           reporter: java-junit
           fail-on-error: true
-
       - name: Test report - cross-service integration
         uses: dorny/test-reporter@v2.1.0
         if: success() || failure()
@@ -90,10 +77,8 @@ jobs:
           path: 'integration-tests/target/surefire-reports/*.xml'
           reporter: java-junit
           fail-on-error: true
-
       # security-common-starter and infra-database have no tests yet - add a report step
       # for each here the day that changes, same pattern as above.
-
       - name: Upload raw surefire reports
         if: failure()
         uses: actions/upload-artifact@v4
