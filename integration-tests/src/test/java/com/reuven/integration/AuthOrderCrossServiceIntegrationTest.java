@@ -1,12 +1,13 @@
 package com.reuven.integration;
 
+import com.redis.testcontainers.RedisContainer;
+import com.reuven.Headers;
+import com.reuven.Role;
 import com.reuven.auth.AuthServiceApplication;
 import com.reuven.auth.dto.AuthResponse;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.Headers;
-import com.reuven.Role;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
 import com.reuven.orderservice.OrderServiceApplication;
@@ -15,15 +16,17 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.utility.DockerImageName;
 
 import java.net.URL;
 import java.nio.file.Paths;
@@ -67,6 +70,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AuthOrderCrossServiceIntegrationTest {
 
+    protected static RedisContainer redis = new RedisContainer(DockerImageName.parse("redis:7.4-alpine"))
+            .withReuse(true);
+
     private static PostgreSQLContainer<?> authPostgres;
     private static PostgreSQLContainer<?> orderPostgres;
 
@@ -95,6 +101,11 @@ class AuthOrderCrossServiceIntegrationTest {
 //        orderPostgres = new PostgreSQLContainer<>("postgres:16-alpine")
 //                .withDatabaseName("orders_db");
 //        orderPostgres.start();
+
+        redis.start();
+        // הגדרת System Properties או העברה ישירה ל-Spring
+        System.setProperty("spring.data.redis.host", redis.getHost());
+        System.setProperty("spring.data.redis.port", String.valueOf(redis.getMappedPort(6379)));
 
         String path = System.getenv("JWT_PRIVATE_KEY_PATH");
 
@@ -131,6 +142,8 @@ class AuthOrderCrossServiceIntegrationTest {
         authApp.setDefaultProperties(Map.ofEntries(
                 Map.entry("server.port", "0"),
                 Map.entry("spring.profiles.active", "local"),
+                Map.entry("spring.data.redis.host", redis.getHost()),
+                Map.entry("spring.data.redis.port", String.valueOf(redis.getMappedPort(6379))),
 //                Map.entry("jwt.private-key-path", path),
                 Map.entry("JWT_PRIVATE_KEY_PATH", path),
                 Map.entry("app.bootstrap.super-admin-password", "password")
@@ -177,6 +190,7 @@ class AuthOrderCrossServiceIntegrationTest {
         if (authContext != null) authContext.close();
         if (orderPostgres != null) orderPostgres.stop();
         if (authPostgres != null) authPostgres.stop();
+        if (redis != null) redis.stop();
     }
 
     @Test

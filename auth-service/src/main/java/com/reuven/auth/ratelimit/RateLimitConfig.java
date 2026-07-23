@@ -19,8 +19,16 @@ import java.util.Objects;
 @EnableConfigurationProperties(RateLimitProperties.class)
 public class RateLimitConfig {
 
-    @Bean
-    public ProxyManager<byte[]> rateLimitProxyManager(RedisConnectionFactory connectionFactory) {
+    /**
+     * Owned separately from {@link #rateLimitProxyManager}, and with an explicit
+     * {@code destroyMethod}, because {@code LettuceBasedProxyManager} does not take
+     * ownership of a connection it didn't open itself - per bucket4j-redis's contract,
+     * the caller that creates the connection is responsible for closing it. Without
+     * this as its own bean, the connection opened here would leak on every context
+     * shutdown/restart (e.g. once per test class in the integration suite).
+     */
+    @Bean(destroyMethod = "close")
+    public StatefulRedisConnection<byte[], byte[]> rateLimitRedisConnection(RedisConnectionFactory connectionFactory) {
         if (!(connectionFactory instanceof LettuceConnectionFactory lettuceConnectionFactory)) {
             throw new IllegalStateException(
                     "Rate limiting requires the Lettuce Redis driver (spring-boot-starter-data-redis's default); "
@@ -30,9 +38,12 @@ public class RateLimitConfig {
         RedisClient redisClient = (RedisClient) lettuceConnectionFactory.getNativeClient();
         Objects.requireNonNull(redisClient, "Lettuce NativeClient must not be null");
 
-        StatefulRedisConnection<byte[], byte[]> connection = redisClient.connect(ByteArrayCodec.INSTANCE);
+        return redisClient.connect(ByteArrayCodec.INSTANCE);
+    }
 
-        return LettuceBasedProxyManager.builderFor(connection)
+    @Bean
+    public ProxyManager<byte[]> rateLimitProxyManager(StatefulRedisConnection<byte[], byte[]> rateLimitRedisConnection) {
+        return LettuceBasedProxyManager.builderFor(rateLimitRedisConnection)
                 .withExpirationStrategy(ExpirationAfterWriteStrategy.basedOnTimeForRefillingBucketUpToMax(Duration.ofMinutes(10)))
                 .build();
     }
