@@ -5,7 +5,8 @@ import com.reuven.auth.dto.AuthResponse;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.auth.entity.UserRole;
+import com.reuven.Headers;
+import com.reuven.Role;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
 import com.reuven.orderservice.OrderServiceApplication;
@@ -132,7 +133,7 @@ class AuthOrderCrossServiceIntegrationTest {
                 Map.entry("spring.profiles.active", "local"),
 //                Map.entry("jwt.private-key-path", path),
                 Map.entry("JWT_PRIVATE_KEY_PATH", path),
-                Map.entry("app.bootstrap.super-admin-password", "pass")
+                Map.entry("app.bootstrap.super-admin-password", "password")
         ));
         authContext = authApp.run(
                 "--server.port=0",
@@ -240,7 +241,7 @@ class AuthOrderCrossServiceIntegrationTest {
         // Postgres under a non-local profile, matching production more closely.
         Tenant tenant = tenantRepository.save(new Tenant("Cross-Service Test Co", EntityStatus.ACTIVE));
         userRepository.save(new User(tenant, "acme-admin",
-                new BCryptPasswordEncoder(12).encode(ADMIN_PASSWORD), UserRole.ADMIN, EntityStatus.ACTIVE));
+                new BCryptPasswordEncoder(12).encode(ADMIN_PASSWORD), Role.ADMIN, EntityStatus.ACTIVE));
         return tenant.getId();
     }
 
@@ -272,7 +273,7 @@ class AuthOrderCrossServiceIntegrationTest {
     private String login(String username, String password, UUID tenantId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-Tenant-ID", tenantId.toString());
+        headers.set(Headers.TENANT_ID, tenantId.toString());
 
         String body = """
                 {"username": "%s", "password": "%s"}

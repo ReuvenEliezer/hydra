@@ -18,5 +18,20 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:8.8-alpine   # official image, AGPLv3 since Redis 8.0 — pin minor, never :latest
+    container_name: hydra-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  redis_data:

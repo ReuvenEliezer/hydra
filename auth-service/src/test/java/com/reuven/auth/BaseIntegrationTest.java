@@ -11,15 +11,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URL;
@@ -49,6 +53,15 @@ public abstract class BaseIntegrationTest {
     protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withReuse(true);
 
+    // No dedicated testcontainers Redis module is used on purpose - GenericContainer
+    // is all that's needed for a single-node redis:7.4-alpine, and @ServiceConnection
+    // doesn't have a built-in Redis recognizer for raw GenericContainer, so the
+    // host/port are wired explicitly below via @DynamicPropertySource instead.
+    @Container
+    protected static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
+            .withExposedPorts(6379)
+            .withReuse(true);
+
     @Autowired
     protected MockMvc mockMvc;
     @Autowired
@@ -63,9 +76,14 @@ public abstract class BaseIntegrationTest {
     protected JwtProvider jwtProvider;
     @Autowired
     protected KeyProvider keyProvider;
+    @Autowired
+    protected StringRedisTemplate stringRedisTemplate;
 
     @DynamicPropertySource
-    static void baseProperties(DynamicPropertyRegistry registry) throws Exception {
+    static void baseProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", redis::getHost);
+        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+
         // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
         // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
         // actual filesystem path rather than reading it into a String.
@@ -93,12 +111,20 @@ public abstract class BaseIntegrationTest {
     }
 
     @BeforeEach
-    protected void setUp() {
-        cleanDatabase();
+    protected void setUp() throws Exception {
+        cleanPostgresDatabase();
+        cleanRedisDatabase();
     }
 
-    private void cleanDatabase() {
+    private void cleanPostgresDatabase() {
         userRepository.deleteAll();
         tenantRepository.deleteAll();
+    }
+
+    private void cleanRedisDatabase() {
+        RedisConnectionFactory connection = stringRedisTemplate.getConnectionFactory();
+        if (connection != null) {
+            connection.getConnection().serverCommands().flushDb();
+        }
     }
 }

@@ -38,7 +38,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         // 1. Prepare Authorities (roles + ROLE_ prefix)
         List<SimpleGrantedAuthority> authorities = user.getRoles().stream()
-                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name()))
+                .map(role -> new SimpleGrantedAuthority(role.authority()))
                 .toList();
 
         // 2. Return our CustomUserDetails instead of the standard User

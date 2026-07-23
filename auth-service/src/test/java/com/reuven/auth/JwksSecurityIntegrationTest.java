@@ -9,10 +9,11 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.reuven.JwtClaimNames;
+import com.reuven.Role;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.auth.entity.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -34,7 +35,7 @@ class JwksSecurityIntegrationTest extends BaseIntegrationTest {
     private User user;
 
     @BeforeEach
-    protected void setUp() {
+    protected void setUp() throws Exception {
         super.setUp();
         // BaseIntegrationTest.setUp() already ran and gave us a clean DB plus
         // superAdmin/testTenant - we just add one more user specific to this test class.
@@ -46,7 +47,7 @@ class JwksSecurityIntegrationTest extends BaseIntegrationTest {
         user = new User();
         user.setUsername("test_admin");
         user.setTenant(tenant);
-        user.addRole(UserRole.ADMIN);
+        user.addRole(Role.ADMIN);
         user.setStatus(EntityStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode("ExampleSecurePassword123!"));
         userRepository.save(user);
@@ -79,13 +80,13 @@ class JwksSecurityIntegrationTest extends BaseIntegrationTest {
         SignedJWT signedJWT = SignedJWT.parse(token);
         JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
 
-        assertEquals(user.getTenant().getId().toString(), claims.getClaim("tenantId"), "Tenant ID mismatch");
+        assertEquals(user.getTenant().getId().toString(), claims.getClaim(JwtClaimNames.TENANT_ID), "Tenant ID mismatch");
 
         // Instead of comparing a single string, we compare the list of roles
-        List<String> rolesFromToken = (List<String>) claims.getClaim("roles");
+        List<String> rolesFromToken = (List<String>) claims.getClaim(JwtClaimNames.ROLES);
 
         List<String> expectedRoles = userRepository.findWithRolesById(user.getId()).get().getRoles().stream()
-                .map(role -> "ROLE_" + role.name())
+                .map(Role::authority)
                 .toList();
 
         assertEquals(expectedRoles.size(), rolesFromToken.size(), "Number of roles mismatch");

@@ -25,12 +25,35 @@
         </dependency>
         <dependency>
             <groupId>com.reuven</groupId>
+            <artifactId>infra-shared</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.reuven</groupId>
             <artifactId>infra-database</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- Rate limiting (see features/rate-limited): distributed, Redis-backed token
+             buckets. bucket4j_jdk17-lettuce pulls in bucket4j_jdk17-redis-common and reuses
+             this module's existing spring-boot-starter-data-redis/Lettuce stack - no second
+             Redis client library is introduced. -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+            <version>8.14.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-lettuce</artifactId>
+            <version>8.14.0</version>
         </dependency>
 <!--        <dependency>-->
 <!--            <groupId>org.springframework.boot</groupId>-->

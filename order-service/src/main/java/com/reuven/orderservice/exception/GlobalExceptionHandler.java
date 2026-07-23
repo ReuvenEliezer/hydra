@@ -1,5 +1,6 @@
 package com.reuven.orderservice.exception;
 
+import com.reuven.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -18,13 +19,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ErrorResponse handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
-        return new ErrorResponse(404, "Not Found", ex.getMessage(), request.getRequestURI());
+        return errorResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
     @ExceptionHandler(BusinessRuleException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_CONTENT)
     public ErrorResponse handleBusinessRule(BusinessRuleException ex, HttpServletRequest request) {
-        return new ErrorResponse(422, "Unprocessable Entity", ex.getMessage(), request.getRequestURI());
+        return errorResponse(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -33,13 +34,22 @@ public class GlobalExceptionHandler {
         String details = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining(", "));
-        return new ErrorResponse(400, "Bad Request", details, request.getRequestURI());
+        return errorResponse(HttpStatus.BAD_REQUEST, details, request);
     }
 
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorResponse handleGeneric(Exception ex, HttpServletRequest request) {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
-        return new ErrorResponse(500, "Internal Server Error", "An unexpected error occurred", request.getRequestURI());
+        return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", request);
+    }
+
+    /**
+     * Builds the response body from the SAME {@link HttpStatus} already declared on
+     * the handler's {@code @ResponseStatus} - see the identical helper in
+     * auth-service's GlobalExceptionHandler for the rationale.
+     */
+    private static ErrorResponse errorResponse(HttpStatus status, String message, HttpServletRequest request) {
+        return new ErrorResponse(status.value(), status.getReasonPhrase(), message, request.getRequestURI());
     }
 }

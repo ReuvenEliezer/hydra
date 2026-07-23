@@ -2,6 +2,7 @@ package com.reuven.auth.config;
 
 import com.reuven.auth.service.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServlet;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -18,25 +19,27 @@ import org.springframework.security.web.SecurityFilterChain;
 @Profile("local")
 @EnableWebSecurity
 @EnableMethodSecurity // This enables @PreAuthorize support across the application
+@RequiredArgsConstructor
 public class H2ConsoleConfig {
 
+    private final SecurityCommons securityCommons;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter) throws Exception {
-        return SecurityConfig.applyCommonSecurity(http, jwtAuthFilter)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtAuthenticationFilter jwtAuthFilter) throws Exception {
+        return securityCommons.applyCommonSecurity(http, jwtAuthFilter)
                 .headers(headers -> headers
-                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable) // Required for H2 Console
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
                 )
                 .authorizeHttpRequests(auth -> {
                     // 1. Specific rule for H2
                     auth.requestMatchers("/h2-console/**").permitAll();
 
                     // 2. Your common rules (from the Customizer)
-                    SecurityConfig.authRules().customize(auth);
+                    securityCommons.authRules().customize(auth);
                 })
                 .build();
     }
-
 
     @Bean
     public ServletRegistrationBean<HttpServlet> h2ConsoleServletRegistration() {

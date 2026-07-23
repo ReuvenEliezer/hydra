@@ -1,5 +1,7 @@
 package com.reuven.orderservice;
 
+import com.reuven.JwtClaimNames;
+import com.reuven.Role;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -28,10 +30,10 @@ class OrderServiceApplicationTests {
         mockMvc.perform(get("/api/orders")
                         .with(jwt()
                                 .jwt(jwt -> jwt
-                                        .claim("tenantId", UUID.randomUUID())
+                                        .claim(JwtClaimNames.TENANT_ID, UUID.randomUUID())
                                 )
                                 .authorities(
-                                        new SimpleGrantedAuthority("ROLE_USER")
+                                        new SimpleGrantedAuthority(Role.USER.authority())
                                 )))
                 .andExpect(status().isOk());
     }

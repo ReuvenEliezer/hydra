@@ -1,5 +1,6 @@
 package com.reuven.auth.entity;
 
+import com.reuven.Role;
 import jakarta.persistence.*;
 import lombok.Getter;
 
@@ -37,7 +38,7 @@ public class User {
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "role")
     @Enumerated(EnumType.STRING)
-    private Set<UserRole> roles = new HashSet<>();
+    private Set<Role> roles = new HashSet<>();
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -45,11 +46,11 @@ public class User {
 
     public User() {}
 
-    public User(Tenant tenant, String username, String passwordHash, UserRole roles, EntityStatus status) {
+    public User(Tenant tenant, String username, String passwordHash, Role roles, EntityStatus status) {
         this(tenant, username, passwordHash, Set.of(roles), status);
     }
 
-    public User(Tenant tenant, String username, String passwordHash, Set<UserRole> roles, EntityStatus status) {
+    public User(Tenant tenant, String username, String passwordHash, Set<Role> roles, EntityStatus status) {
         this.tenant = tenant;
         this.username = username;
         this.passwordHash = passwordHash;
@@ -63,7 +64,7 @@ public class User {
 
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
 
-    public void addRole(UserRole role) { this.roles.add(role); }
+    public void addRole(Role role) { this.roles.add(role); }
 
     public void setStatus(EntityStatus status) {
         this.status = status;

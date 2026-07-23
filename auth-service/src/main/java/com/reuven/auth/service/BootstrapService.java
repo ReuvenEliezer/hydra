@@ -1,5 +1,6 @@
 package com.reuven.auth.service;
 
+import com.reuven.Role;
 import com.reuven.auth.entity.*;
 import com.reuven.auth.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -54,7 +55,7 @@ public class BootstrapService implements ApplicationListener<ApplicationReadyEve
                     systemTenant,
                     "super-admin",
                     precomputedHash, // Using the hash directly!
-                    UserRole.SUPER_ADMIN,
+                    Role.SUPER_ADMIN,
                     EntityStatus.ACTIVE
             );
 

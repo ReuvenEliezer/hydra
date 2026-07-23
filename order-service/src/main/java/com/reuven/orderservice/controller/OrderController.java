@@ -1,6 +1,7 @@
 package com.reuven.orderservice.controller;
 
 
+import com.reuven.JwtClaimNames;
 import com.reuven.Roles;
 import com.reuven.orderservice.dto.CreateOrderRequest;
 import com.reuven.orderservice.dto.OrderResponse;
@@ -49,7 +50,7 @@ public class OrderController {
             @RequestParam(name = "status", required = false) OrderStatus status,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
-        UUID tenantId = UUID.fromString(jwt.getClaimAsString("tenantId"));
+        UUID tenantId = UUID.fromString(jwt.getClaimAsString(JwtClaimNames.TENANT_ID));
         if (status != null) {
             return orderService.getOrdersByStatus(tenantId, status, pageable);
         }
@@ -75,7 +76,7 @@ public class OrderController {
             @Valid @RequestBody CreateOrderRequest request,
             @AuthenticationPrincipal Jwt jwt) {
 
-        UUID tenantId = UUID.fromString(jwt.getClaimAsString("tenantId"));
+        UUID tenantId = UUID.fromString(jwt.getClaimAsString(JwtClaimNames.TENANT_ID));
         UUID userId = UUID.fromString(jwt.getSubject());
         return orderService.createOrder(request, tenantId, userId);
     }
@@ -83,31 +84,31 @@ public class OrderController {
     @GetMapping("/{id}")
     @PreAuthorize(Roles.USER)
     public OrderResponse getOrder(
-            @PathVariable UUID id,
+            @PathVariable("id") UUID id,
             @AuthenticationPrincipal Jwt jwt) {
-        UUID tenantId = UUID.fromString(jwt.getClaimAsString("tenantId"));
+        UUID tenantId = UUID.fromString(jwt.getClaimAsString(JwtClaimNames.TENANT_ID));
         return orderService.getOrder(id, tenantId);
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+    @PreAuthorize(Roles.ADMIN)
     public OrderResponse updateStatus(
-            @PathVariable UUID id,
+            @PathVariable("id") UUID id,
             @Valid @RequestBody UpdateOrderStatusRequest request,
             @AuthenticationPrincipal Jwt jwt) {
 
-        UUID tenantId = UUID.fromString(jwt.getClaimAsString("tenantId"));
+        UUID tenantId = UUID.fromString(jwt.getClaimAsString(JwtClaimNames.TENANT_ID));
         return orderService.updateStatus(id, tenantId, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+    @PreAuthorize(Roles.ADMIN)
     public void cancelOrder(
-            @PathVariable UUID id,
+            @PathVariable("id") UUID id,
             @AuthenticationPrincipal Jwt jwt) {
 
-        UUID tenantId = UUID.fromString(jwt.getClaimAsString("tenantId"));
+        UUID tenantId = UUID.fromString(jwt.getClaimAsString(JwtClaimNames.TENANT_ID));
         orderService.cancelOrder(id, tenantId);
     }
 

@@ -5,7 +5,7 @@ import com.reuven.auth.dto.UserSecurity;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.auth.entity.UserRole;
+import com.reuven.Role;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -23,7 +23,7 @@ class SecurityIntegrationTest extends BaseIntegrationTest {
     private UUID tenantId;
 
     @BeforeEach
-    void setup() {
+    void setup() throws Exception {
         super.setUp();
         String secureHash = passwordEncoder.encode(PLAIN_PASSWORD);
         System.out.println("secureHash: " + secureHash);
@@ -40,7 +40,7 @@ class SecurityIntegrationTest extends BaseIntegrationTest {
         User user = new User();
         user.setUsername("test_admin");
         user.setTenant(tenant);
-        user.addRole(UserRole.ADMIN);
+        user.addRole(Role.ADMIN);
         user.setStatus(EntityStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(PLAIN_PASSWORD));
 
