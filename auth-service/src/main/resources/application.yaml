@@ -21,12 +21,42 @@ spring:
   threads:
     virtual:
       enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
 jwt:
   secret-name: "hydra-aws-secret-name"
   key-id: "auth-service-key-v1"
   issuer: hydra-auth-service
   expiration-duration: PT1H
   cache-max-age-duration: PT15M
+refresh-token:
+  ttl: ${REFRESH_TOKEN_TTL:P30D}
+  grace-ttl: ${REFRESH_TOKEN_GRACE_TTL:PT5S}
+  cookie:
+    secure: ${REFRESH_COOKIE_SECURE:true}
+# See features/rate-limited/REQUIREMENTS.md and DECISIONS.md.
+# Every limit below is "capacity requests per window", enforced independently per
+# dimension (e.g. login's per-ip and per-username limits do not affect each other).
+rate-limit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  login:
+    per-ip:
+      capacity: ${RATE_LIMIT_LOGIN_PER_IP_CAPACITY:5}
+      window: ${RATE_LIMIT_LOGIN_PER_IP_WINDOW:PT1M}
+    per-username:
+      capacity: ${RATE_LIMIT_LOGIN_PER_USERNAME_CAPACITY:5}
+      window: ${RATE_LIMIT_LOGIN_PER_USERNAME_WINDOW:PT1M}
+  refresh:
+    per-ip:
+      capacity: ${RATE_LIMIT_REFRESH_PER_IP_CAPACITY:20}
+      window: ${RATE_LIMIT_REFRESH_PER_IP_WINDOW:PT1M}
+    per-token:
+      capacity: ${RATE_LIMIT_REFRESH_PER_TOKEN_CAPACITY:20}
+      window: ${RATE_LIMIT_REFRESH_PER_TOKEN_WINDOW:PT1M}
 #logging:
 #  level:
 #    root: DEBUG

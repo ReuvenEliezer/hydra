@@ -1,5 +1,6 @@
 package com.reuven.orderservice.config;
 
+import com.reuven.JwtClaimNames;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -35,11 +36,11 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) -> {
                             log.error("Auth error: {}", e.getMessage(), e);
-                            res.sendError(401, "Unauthorized");
+                            res.sendError(HttpStatus.UNAUTHORIZED.value(), HttpStatus.UNAUTHORIZED.getReasonPhrase());
                         })
                         .accessDeniedHandler((req, res, e) -> {
                             log.error("Access denied: {}", e.getMessage(), e);
-                            res.sendError(403, "Forbidden");
+                            res.sendError(HttpStatus.FORBIDDEN.value(), HttpStatus.FORBIDDEN.getReasonPhrase());
                         })
                 )
                 .authorizeHttpRequests(auth -> auth
@@ -57,7 +58,7 @@ public class SecurityConfig {
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter converter = new JwtGrantedAuthoritiesConverter();
-        converter.setAuthoritiesClaimName("roles");
+        converter.setAuthoritiesClaimName(JwtClaimNames.ROLES);
         // ROLE_ already comes from the token
         converter.setAuthorityPrefix(""); // ROLE_ prefix already in the claim
 //         Very important: because you use hasRole, Spring looks for the prefix ROLE_

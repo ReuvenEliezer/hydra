@@ -15,7 +15,7 @@ spring:
       resourceserver:
         jwt:
           jwk-set-uri: ${AUTH_SERVICE_URL:http://localhost:8083}/.well-known/jwks.json
-          issuer-uri: ${AUTH_SERVICE_URL:http://localhost:8083}
+          issuer-uri: ${AUTH_SERVICE_ISSUER:hydra-auth-service}
 management:
   endpoints:
     web:

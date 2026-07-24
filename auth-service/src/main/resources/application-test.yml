@@ -11,3 +11,7 @@ spring:
     show-sql: true
 jwt:
   private-key-path: ${JWT_PRIVATE_KEY_PATH}
+refresh-token:
+  grace-ttl: PT2S
+  cookie:
+    secure: false

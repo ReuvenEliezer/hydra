@@ -1,5 +1,6 @@
 package com.reuven.auth.service;
 
+import com.reuven.Role;
 import com.reuven.auth.dto.AuthResponse;
 import com.reuven.auth.dto.CustomUserDetails;
 import com.reuven.auth.dto.LoginRequest;
@@ -7,7 +8,6 @@ import com.reuven.auth.dto.RegisterRequest;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.auth.entity.UserRole;
 import com.reuven.auth.exception.BusinessRuleException;
 import com.reuven.auth.exception.ResourceNotFoundException;
 import com.reuven.auth.repository.TenantRepository;
@@ -18,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -29,21 +30,24 @@ public class AuthService {
     private final TenantRepository tenantRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthService(UserRepository userRepository,
                        TenantRepository tenantRepository,
                        PasswordEncoder passwordEncoder,
-                       JwtProvider jwtProvider) {
+                       JwtProvider jwtProvider,
+                       RefreshTokenService refreshTokenService) {
 
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Transactional
-    public AuthResponse registerAdmin(RegisterRequest request, UUID tenantId, UserRole requesterRole) {
-        if (requesterRole != UserRole.SUPER_ADMIN) {
+    public AuthResponse registerAdmin(RegisterRequest request, UUID tenantId, Role requesterRole) {
+        if (requesterRole != Role.SUPER_ADMIN) {
             throw new BusinessRuleException("Only Super Admin can register tenant admins");
         }
 
@@ -59,7 +63,7 @@ public class AuthService {
         }
 
         User admin = new User(tenant, request.username(),
-                passwordEncoder.encode(request.password()), UserRole.ADMIN, EntityStatus.ACTIVE);
+                passwordEncoder.encode(request.password()), Role.ADMIN, EntityStatus.ACTIVE);
         userRepository.save(admin);
 
         log.info("Admin '{}' created for tenant {}", request.username(), tenantId);
@@ -84,14 +88,14 @@ public class AuthService {
         }
 
         User newUser = new User(tenant, request.username(),
-                passwordEncoder.encode(request.password()), UserRole.USER, EntityStatus.ACTIVE);
+                passwordEncoder.encode(request.password()), Role.USER, EntityStatus.ACTIVE);
         User save = userRepository.save(newUser);
 
         log.info("User '{}' created in tenant {}", request.username(), tenantId);
         return new AuthResponse(save.getId(), null, "USER_CREATED");
     }
 
-    public AuthResponse login(LoginRequest request, UUID tenantId) {
+    public LoginResult login(LoginRequest request, UUID tenantId) {
         // Use a generic message to prevent username enumeration
         User user = userRepository.findWithRolesByTenantIdAndUsername(tenantId, request.username())
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
@@ -104,8 +108,18 @@ public class AuthService {
             throw new BadCredentialsException("Invalid credentials");
         }
 
-        String token = jwtProvider.generateToken(user);
+        String accessToken = jwtProvider.generateToken(user);
+        List<Role> roles = List.copyOf(user.getRoles());
+        String rawRefreshToken = refreshTokenService.issue(user.getId(), tenantId, roles);
+
         log.info("User '{}' logged in for tenant {}", request.username(), tenantId);
-        return new AuthResponse(user.getId(), token);
+        return new LoginResult(new AuthResponse(user.getId(), accessToken), rawRefreshToken);
+    }
+
+    /** Pairs the access-token response body with the raw refresh token, which the
+     *  controller (not this service) turns into an httpOnly cookie. Keeping that
+     *  split here means AuthService stays in charge of the transactional unit of
+     *  "issue both tokens together", while CookieUtil/HTTP concerns stay in the web layer. */
+    public record LoginResult(AuthResponse body, String rawRefreshToken) {
     }
 }

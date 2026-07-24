@@ -6,12 +6,14 @@ import com.reuven.auth.dto.RegisterRequest;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.auth.entity.UserRole;
+import com.reuven.Headers;
+import com.reuven.Role;
 import com.reuven.auth.service.JwtProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -49,17 +51,17 @@ class AuthIntegrationTest extends BaseIntegrationTest {
 
 
     @BeforeEach
-    protected void setUp() {
+    protected void setUp() throws Exception {
         super.setUp();
         Tenant systemTenant = new Tenant("System Tenant", EntityStatus.ACTIVE);
         tenantRepository.save(systemTenant);
         superAdmin = new User(systemTenant, "super-admin",
-                passwordEncoder.encode(SUPER_ADMIN_PASSWORD), UserRole.SUPER_ADMIN, EntityStatus.ACTIVE);
+                passwordEncoder.encode(SUPER_ADMIN_PASSWORD), Role.SUPER_ADMIN, EntityStatus.ACTIVE);
         userRepository.save(superAdmin);
 
         testTenant = new Tenant("Acme Corp", EntityStatus.ACTIVE);
         tenantRepository.save(testTenant);
-        userRepository.save(new User(testTenant, "acme-admin", passwordEncoder.encode(ADMIN_PASSWORD), UserRole.ADMIN, EntityStatus.ACTIVE));
+        userRepository.save(new User(testTenant, "acme-admin", passwordEncoder.encode(ADMIN_PASSWORD), Role.ADMIN, EntityStatus.ACTIVE));
         adminToken = loginAs("acme-admin", ADMIN_PASSWORD, testTenant.getId());
     }
 
@@ -78,7 +80,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         String expiredToken = expiredTokenProvider.generateToken(superAdmin);
 
         mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
-                        .header("Authorization", "Bearer " + expiredToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + expiredToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("ghost-admin", ADMIN_PASSWORD))))
                 .andExpect(status().isUnauthorized());
@@ -88,7 +90,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Malformed bearer token is rejected with 401, not 500")
     void malformedToken_returns401() throws Exception {
         mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
-                        .header("Authorization", "Bearer not-a-real-jwt")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer not-a-real-jwt")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("ghost-admin", ADMIN_PASSWORD))))
                 .andExpect(status().isUnauthorized());
@@ -100,7 +102,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void superAdminLogin_success() throws Exception {
         var loginRequest = new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD);
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header("X-Tenant-ID", superAdmin.getTenant().getId().toString())
+                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
@@ -112,7 +114,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void login_wrongPassword_returns401() throws Exception {
         var loginRequest = new LoginRequest("super-admin", "totally-wrong-password");
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header("X-Tenant-ID", superAdmin.getTenant().getId().toString())
+                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized());
@@ -123,7 +125,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void login_unknownUser_returns401() throws Exception {
         var loginRequest = new LoginRequest("nobody-by-this-name", "irrelevant-password");
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header("X-Tenant-ID", superAdmin.getTenant().getId().toString())
+                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized())
@@ -136,7 +138,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         // super-admin exists under the System tenant, not testTenant
         var loginRequest = new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD);
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header("X-Tenant-ID", testTenant.getId().toString())
+                        .header(Headers.TENANT_ID, testTenant.getId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized());
@@ -165,7 +167,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         String username = "admin-" + UUID.randomUUID();
 
         mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
-                        .header("Authorization", "Bearer " + superAdminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + superAdminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(
                                 new RegisterRequest(username, ADMIN_PASSWORD)
@@ -181,7 +183,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Tenant admin (not super admin) gets 403 trying to register another admin")
     void registerAdmin_byTenantAdmin_returns403() throws Exception {
         mockMvc.perform(post("/api/v1/admin/{tenantId}/register-admin", testTenant.getId())
-                        .header("Authorization", "Bearer " + adminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("another-admin", ADMIN_PASSWORD))))
                 .andExpect(status().isForbidden());
@@ -203,7 +205,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         var request = new RegisterRequest("john.doe", USER_PASSWORD);
 
         mockMvc.perform(post("/api/v1/admin/register-user")
-                        .header("Authorization", "Bearer " + adminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
@@ -221,7 +223,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         var request = new RegisterRequest(requestUsername, USER_PASSWORD);
 
         mockMvc.perform(post("/api/v1/admin/register-user")
-                        .header("Authorization", "Bearer " + adminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
@@ -240,11 +242,11 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Plain user cannot register other users")
     void registerUser_byPlainUser_returns403() throws Exception {
         userRepository.save(new User(testTenant, "regular-joe",
-                passwordEncoder.encode(USER_PASSWORD), UserRole.USER, EntityStatus.ACTIVE));
+                passwordEncoder.encode(USER_PASSWORD), Role.USER, EntityStatus.ACTIVE));
         String userToken = loginAs("regular-joe", USER_PASSWORD, testTenant.getId());
 
         mockMvc.perform(post("/api/v1/admin/register-user", testTenant.getId())
-                        .header("Authorization", "Bearer " + userToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new RegisterRequest("another-user", USER_PASSWORD))))
                 .andExpect(status().isForbidden());
@@ -258,30 +260,26 @@ class AuthIntegrationTest extends BaseIntegrationTest {
 
         // First creation - should succeed
         mockMvc.perform(post("/api/v1/admin/register-user")
-                        .header("Authorization", "Bearer " + adminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
         // Second attempt - should fail
         mockMvc.perform(post("/api/v1/admin/register-user")
-                        .header("Authorization", "Bearer " + adminToken)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(request)))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableContent());
     }
 
-    private String loginAs(String username, String password, UUID tenantId) {
-        try {
-            MvcResult result = mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
-                            .header("X-Tenant-ID", tenantId.toString())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(jsonMapper.writeValueAsString(new LoginRequest(username, password))))
-                    .andExpect(MockMvcResultMatchers.status().isOk())
-                    .andReturn();
-            return jsonMapper.readValue(result.getResponse().getContentAsString(), AuthResponse.class).token();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    private String loginAs(String username, String password, UUID tenantId) throws Exception {
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
+                        .header(Headers.TENANT_ID, tenantId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(new LoginRequest(username, password))))
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andReturn();
+        return jsonMapper.readValue(result.getResponse().getContentAsString(), AuthResponse.class).token();
     }
 }

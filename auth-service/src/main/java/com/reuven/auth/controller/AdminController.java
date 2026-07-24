@@ -1,9 +1,10 @@
 package com.reuven.auth.controller;
 
+import com.reuven.Role;
+import com.reuven.Roles;
 import com.reuven.auth.dto.AuthResponse;
 import com.reuven.auth.dto.CustomUserDetails;
 import com.reuven.auth.dto.RegisterRequest;
-import com.reuven.auth.entity.UserRole;
 import com.reuven.auth.service.AuthService;
 import com.reuven.auth.service.JwtProvider;
 import jakarta.validation.Valid;
@@ -28,7 +29,7 @@ public class AdminController {
     private final AuthService authService;
 
     @PostMapping("/register-user")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+    @PreAuthorize(Roles.ADMIN)
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse registerUser(
             @Valid @RequestBody RegisterRequest request,
@@ -40,12 +41,12 @@ public class AdminController {
     }
 
     @PostMapping("/{tenantId}/register-admin") //TODO do by domain (mapping domain-url to tenantId)
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
+    @PreAuthorize(Roles.SUPER_ADMIN_ONLY)
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse registerAdmin(
             @PathVariable("tenantId") UUID tenantId,
             @Valid @RequestBody RegisterRequest request) {
 
-        return authService.registerAdmin(request, tenantId, UserRole.SUPER_ADMIN);
+        return authService.registerAdmin(request, tenantId, Role.SUPER_ADMIN);
     }
 }

@@ -1,5 +1,6 @@
 package com.reuven.auth;
 
+import com.reuven.auth.config.TestContainersConfig;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
 import com.reuven.auth.repository.TenantRepository;
@@ -9,17 +10,16 @@ import com.reuven.auth.service.KeyProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URL;
@@ -27,8 +27,8 @@ import java.nio.file.Paths;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 @ActiveProfiles("test")
+@Import(TestContainersConfig.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 // Reset Spring context after each test method to ensure isolation
 public abstract class BaseIntegrationTest {
@@ -44,11 +44,6 @@ public abstract class BaseIntegrationTest {
     protected static final String ADMIN_PASSWORD = "Admin@12345";
     protected static final String USER_PASSWORD = "UserPass@123";
 
-    @Container
-    @ServiceConnection
-    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withReuse(true);
-
     @Autowired
     protected MockMvc mockMvc;
     @Autowired
@@ -63,9 +58,14 @@ public abstract class BaseIntegrationTest {
     protected JwtProvider jwtProvider;
     @Autowired
     protected KeyProvider keyProvider;
+    @Autowired
+    protected StringRedisTemplate stringRedisTemplate;
 
     @DynamicPropertySource
-    static void baseProperties(DynamicPropertyRegistry registry) throws Exception {
+    static void baseProperties(DynamicPropertyRegistry registry) {
+//        registry.add("spring.data.redis.host", redis::getHost);
+//        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+
         // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
         // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
         // actual filesystem path rather than reading it into a String.
@@ -93,12 +93,20 @@ public abstract class BaseIntegrationTest {
     }
 
     @BeforeEach
-    protected void setUp() {
-        cleanDatabase();
+    protected void setUp() throws Exception {
+        cleanPostgresDatabase();
+        cleanRedisDatabase();
     }
 
-    private void cleanDatabase() {
+    private void cleanPostgresDatabase() {
         userRepository.deleteAll();
         tenantRepository.deleteAll();
+    }
+
+    private void cleanRedisDatabase() {
+        RedisConnectionFactory connection = stringRedisTemplate.getConnectionFactory();
+        if (connection != null) {
+            connection.getConnection().serverCommands().flushDb();
+        }
     }
 }

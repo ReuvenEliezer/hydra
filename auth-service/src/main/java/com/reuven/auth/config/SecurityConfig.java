@@ -1,74 +1,60 @@
 package com.reuven.auth.config;
 
 import com.reuven.auth.service.JwtAuthenticationFilter;
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import org.springframework.security.config.Customizer;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
-import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-@Slf4j
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity // This enables @PreAuthorize support across the application
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+    private final SecurityCommons securityCommons;
 
     @Bean
     @Profile("!local")
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter) throws Exception {
-        return applyCommonSecurity(http, jwtAuthFilter)
-                .authorizeHttpRequests(authRules())
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtAuthenticationFilter jwtAuthFilter) throws Exception {
+        return securityCommons.applyCommonSecurity(http, jwtAuthFilter)
+                .authorizeHttpRequests(securityCommons.authRules())
                 .build();
     }
 
-    public static HttpSecurity applyCommonSecurity(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter) throws Exception {
-        return http
-                .csrf(AbstractHttpConfigurer::disable)
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> {
-                            log.error("Auth error: {}", e.getMessage(), e);
-                            res.sendError(401, "Unauthorized");
-                        })
-                        .accessDeniedHandler((req, res, e) -> {
-                            log.error("Access denied: {}", e.getMessage(), e);
-                            res.sendError(403, "Forbidden");
-                        })
-                )
-//                .exceptionHandling(ex -> ex
-//                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
-//                )
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
-    }
-
-    public static Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry> authRules() {
-        return auth -> auth
-                // 1. Open endpoints
-                .requestMatchers("/api/v1/auth/login").permitAll()
-
-                // 2. Tenant admin registration - Super Admin only
-                .requestMatchers("/api/v1/admin/*/register-admin").hasAuthority("ROLE_SUPER_ADMIN")
-
-                // 3. Regular user registration - Admin or Super Admin
-                // Matching AdminController:
-                .requestMatchers("/api/v1/admin/register-user").hasAnyAuthority("ROLE_SUPER_ADMIN", "ROLE_ADMIN")
-
-                .requestMatchers("/.well-known/jwks.json").permitAll()
-                .requestMatchers("/actuator/health").permitAll()
-
-                // 4. Other requests require authentication
-                .anyRequest().authenticated();
-    }
+    /**
+     * Exposes a DaoAuthenticationProvider-backed AuthenticationManager as a bean.
+     *
+     * The login flow in {@link com.reuven.auth.service.AuthService} deliberately does NOT
+     * delegate to this bean: the multi-tenant lookup requires tenantId as a parameter
+     * ({@code findWithRolesByTenantIdAndUsername(tenantId, username)}), which
+     * {@link org.springframework.security.core.userdetails.UserDetailsService#loadUserByUsername}
+     * cannot accommodate without a thread-local hack.
+     *
+     * This bean exists for:
+     * 1. Spring Security test utilities ({@code @WithMockUser}, MockMvc security slices)
+     * 2. Future non-tenant auth providers (service-to-service, admin CLI)
+     * 3. Method-security tests that need a real AuthenticationManager wired in
+     */
+//    @Bean
+//    public AuthenticationManager authenticationManager(UserDetailsService userDetailsService,
+//                                                       PasswordEncoder passwordEncoder) {
+//        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+////        provider.setUserDetailsPasswordService(userDetailsService);
+//        provider.setPasswordEncoder(passwordEncoder);
+//        return new ProviderManager(provider);
+//    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
