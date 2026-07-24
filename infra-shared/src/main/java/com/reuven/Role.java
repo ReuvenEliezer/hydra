@@ -15,9 +15,9 @@ package com.reuven;
  */
 public enum Role {
 
-    SUPER_ADMIN(Roles.SUPER_ADMIN_AUTHORITY),
-    ADMIN(Roles.ADMIN_AUTHORITY),
-    USER(Roles.USER_AUTHORITY);
+    SUPER_ADMIN(Roles.SUPER_ADMIN_AUTHORITY), // super-admin, can manage tenants and users across all tenants
+    ADMIN(Roles.ADMIN_AUTHORITY), // tenant-specific admin, can manage users and orders within their tenant
+    USER(Roles.USER_AUTHORITY);  // regular user within a tenant
 
     private final String authority;
 
