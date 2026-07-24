@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * Exercises {@link RateLimiter} directly against a real redis:7.4-alpine container - no
+ * Exercises {@link RateLimiter} directly against a real redis:8.8-alpine container - no
  * Spring context, mirroring RefreshTokenServiceTest's approach for the same reasons
  * (fast, and proves the actual atomic Redis behavior rather than a mock's assumptions
  * about it).
@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 class RateLimiterTest {
 
     @Container
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
+    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:8.8-alpine"))
             .withExposedPorts(6379);
 
     private static RedisClient redisClient;

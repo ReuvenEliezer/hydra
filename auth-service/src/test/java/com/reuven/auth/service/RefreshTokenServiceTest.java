@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Pure unit-level test of the atomic Lua-scripted Redis key design (token slot,
- * family pointer, grace window) against a real redis:7.4-alpine container - no
+ * family pointer, grace window) against a real redis:8.8-alpine container - no
  * Spring context, so this runs in milliseconds compared to the full integration
  * test below.
  */
@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RefreshTokenServiceTest {
 
     @Container
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
+    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:8.8-alpine"))
             .withExposedPorts(6379);
 
     private StringRedisTemplate redisTemplate;

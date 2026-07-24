@@ -22,10 +22,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 import java.net.URL;
@@ -70,7 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AuthOrderCrossServiceIntegrationTest {
 
-    protected static RedisContainer redis = new RedisContainer(DockerImageName.parse("redis:7.4-alpine"))
+    protected static RedisContainer redis = new RedisContainer(DockerImageName.parse("redis:8.8-alpine"))
             .withReuse(true);
 
     private static PostgreSQLContainer<?> authPostgres;
