@@ -29,7 +29,7 @@ public class H2ConsoleConfig {
                                                    JwtAuthenticationFilter jwtAuthFilter) throws Exception {
         return securityCommons.applyCommonSecurity(http, jwtAuthFilter)
                 .headers(headers -> headers
-                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)  // Required for H2 Console
                 )
                 .authorizeHttpRequests(auth -> {
                     // 1. Specific rule for H2

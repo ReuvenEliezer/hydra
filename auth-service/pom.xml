@@ -12,6 +12,10 @@
     <name>auth-service</name>
     <description>auth-service</description>
 
+    <properties>
+        <bucket4j.version>8.14.0</bucket4j.version>
+    </properties>
+
     <dependencies>
 
         <dependency>
@@ -48,12 +52,12 @@
         <dependency>
             <groupId>com.bucket4j</groupId>
             <artifactId>bucket4j_jdk17-core</artifactId>
-            <version>8.14.0</version>
+            <version>${bucket4j.version}</version>
         </dependency>
         <dependency>
             <groupId>com.bucket4j</groupId>
             <artifactId>bucket4j_jdk17-lettuce</artifactId>
-            <version>8.14.0</version>
+            <version>${bucket4j.version}</version>
         </dependency>
 <!--        <dependency>-->
 <!--            <groupId>org.springframework.boot</groupId>-->

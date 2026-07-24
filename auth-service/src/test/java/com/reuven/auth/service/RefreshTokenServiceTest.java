@@ -1,5 +1,6 @@
 package com.reuven.auth.service;
 
+import com.redis.testcontainers.RedisContainer;
 import com.reuven.Role;
 import com.reuven.auth.exception.InvalidRefreshTokenException;
 import com.reuven.auth.exception.RefreshTokenReuseException;
@@ -11,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RefreshTokenServiceTest {
 
     @Container
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:8.8-alpine"))
+    static RedisContainer redis = new RedisContainer(DockerImageName.parse("redis:8.8-alpine"))
             .withExposedPorts(6379);
 
     private StringRedisTemplate redisTemplate;
