@@ -39,7 +39,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <nimbus-jose-jwt>10.9.1</nimbus-jose-jwt>
         <testcontainers.version>1.21.4</testcontainers.version>
-        <awssdk.version>2.47.4</awssdk.version>
+        <awssdk.version>2.49.2</awssdk.version>
     </properties>
 
     <dependencyManagement>
