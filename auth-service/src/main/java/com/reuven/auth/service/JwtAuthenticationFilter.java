@@ -54,6 +54,39 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // For Super Admin, the tenantId in the token might be null/empty
 
                 TokenClaims claims = jwtProvider.extractTokenClaims(token);
+                // Load user details from the DB -
+                /**
+                 * Option 1: Load user details from the database on every request.
+                 *
+                 * Pros:
+                 *   - Always uses the latest user state (roles, permissions, account status).
+                 *   - No cache invalidation complexity.
+                 *
+                 * Cons:
+                 *   - Additional database call on every authenticated request.
+                 *   - Higher latency and database load.
+                 *
+                 * Option 2: Reconstruct the user from JWT claims (current implementation).
+                 *
+                 * Pros:
+                 *   - No database lookup.
+                 *   - Lowest latency and scales well.
+                 *
+                 * Cons:
+                 *   - User changes (roles, account disabled, etc.) are not reflected until the JWT expires.
+                 *   - JWT must contain all required information.
+                 *
+                 * Option 3: Cache user details in memory (e.g. Caffeine).
+                 *
+                 * Pros:
+                 *   - Significantly reduces database load while allowing periodic refresh.
+                 *   - Faster than querying the database on every request.
+                 *
+                 * Cons:
+                 *   - Cache invalidation/expiration must be handled correctly.
+                 *   - Changes are not reflected immediately unless the cache is explicitly evicted.
+                 */
+//                CustomUserDetails userDetails = userDetailsService.loadUserByUsername(publicUserId);
                 CustomUserDetails userDetails = CustomUserDetails.fromTokenClaims(claims);
 
                 //Create an Authentication object with our CustomUserDetails
