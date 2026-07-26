@@ -61,6 +61,14 @@ jobs:
           path: 'auth-service/target/surefire-reports/*.xml'
           reporter: java-junit
           fail-on-error: true
+      - name: Test report - rate-limit-starter
+        uses: dorny/test-reporter@v3
+        if: success() || failure()
+        with:
+          name: Tests - rate-limit-starter
+          path: 'rate-limit-starter/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: true
       - name: Test report - order-service
         uses: dorny/test-reporter@v3
         if: success() || failure()
