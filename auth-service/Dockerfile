@@ -10,6 +10,7 @@ COPY pom.xml .
 # Copy module POMs
 COPY infra-shared/pom.xml infra-shared/pom.xml
 COPY infra-database/pom.xml infra-database/pom.xml
+COPY rate-limit-starter/pom.xml rate-limit-starter/pom.xml
 COPY auth-service/pom.xml auth-service/pom.xml
 COPY order-service/pom.xml order-service/pom.xml
 
@@ -19,6 +20,7 @@ RUN ./mvnw dependency:go-offline -B -pl auth-service -am
 # Copy sources
 COPY infra-shared infra-shared
 COPY infra-database infra-database
+COPY rate-limit-starter rate-limit-starter
 COPY auth-service auth-service
 
 # Build

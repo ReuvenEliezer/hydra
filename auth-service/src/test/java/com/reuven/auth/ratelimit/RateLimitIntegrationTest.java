@@ -32,6 +32,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
 
     private static final String LOGIN_URL = "/api/v1/auth/login";
     private static final String REFRESH_URL = "/api/v1/auth/refresh";
+    private static final String USER_PASSWORD = "UserPass@123";
 
     @DynamicPropertySource
     static void rateLimitProperties(DynamicPropertyRegistry registry) {
@@ -89,11 +90,12 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("login: different (username, IP) pairs have independent budgets")
+    @DisplayName("login: different (username, IP) pairs have independent budgets - neither exhausts the other's")
     void login_differentUsernamesAndIps_haveIndependentBudgets() throws Exception {
-        userRepository.save(new User(testTenant, "rate-limit-user-2",
+        User other = userRepository.save(new User(testTenant, "rate-limit-user-2",
                 passwordEncoder.encode(USER_PASSWORD), com.reuven.Role.USER, EntityStatus.ACTIVE));
 
+        // Exhaust "rate-limit-user"'s budget, all calls simulated from IP 10.0.0.1.
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(post(LOGIN_URL)
                     .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.1")

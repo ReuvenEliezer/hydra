@@ -26,7 +26,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-//@RequiredArgsConstructor
+@RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService authService;
@@ -34,14 +34,6 @@ public class AuthController {
     private final JwtProvider jwtProvider;
     private final CookieUtil cookieUtil;
     private final RateLimiterEngine rateLimiterEngine;
-
-    public AuthController(AuthService authService, RefreshTokenService refreshTokenService, JwtProvider jwtProvider, CookieUtil cookieUtil, RateLimiterEngine rateLimiterEngine) {
-        this.authService = authService;
-        this.refreshTokenService = refreshTokenService;
-        this.jwtProvider = jwtProvider;
-        this.cookieUtil = cookieUtil;
-        this.rateLimiterEngine = rateLimiterEngine;
-    }
 
     @PostMapping("/login")
     @RateLimited(limit = "login-ip", key = "T(com.reuven.ratelimit.ClientIpResolver).resolve(#httpRequest)")
