@@ -43,18 +43,24 @@ refresh-token:
 # dimension (e.g. login's per-ip and per-username limits do not affect each other).
 rate-limit:
   enabled: ${RATE_LIMIT_ENABLED:true}
-  login:
-    per-ip:
+  # false (default) = fail closed: a Redis outage rejects requests same as a real
+  # limit breach. true = fail open: requests pass through unthrottled during an
+  # outage. See Bucket4jRateLimiterEngine's Javadoc before flipping this.
+  fail-open: ${RATE_LIMIT_FAIL_OPEN:false}
+  # Map keyed by the limit() name used on each @RateLimited annotation - adding a new
+  # protected endpoint anywhere in auth-service only requires a new entry here plus
+  # the annotation, never a new Java type.
+  limits:
+    login-ip:
       capacity: ${RATE_LIMIT_LOGIN_PER_IP_CAPACITY:5}
       window: ${RATE_LIMIT_LOGIN_PER_IP_WINDOW:PT1M}
-    per-username:
+    login-username:
       capacity: ${RATE_LIMIT_LOGIN_PER_USERNAME_CAPACITY:5}
       window: ${RATE_LIMIT_LOGIN_PER_USERNAME_WINDOW:PT1M}
-  refresh:
-    per-ip:
+    refresh-ip:
       capacity: ${RATE_LIMIT_REFRESH_PER_IP_CAPACITY:20}
       window: ${RATE_LIMIT_REFRESH_PER_IP_WINDOW:PT1M}
-    per-token:
+    refresh-token:
       capacity: ${RATE_LIMIT_REFRESH_PER_TOKEN_CAPACITY:20}
       window: ${RATE_LIMIT_REFRESH_PER_TOKEN_WINDOW:PT1M}
 #logging:

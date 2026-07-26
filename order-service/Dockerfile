@@ -7,6 +7,7 @@ COPY pom.xml .
 
 COPY infra-shared/pom.xml infra-shared/pom.xml
 COPY infra-database/pom.xml infra-database/pom.xml
+COPY rate-limit-starter/pom.xml rate-limit-starter/pom.xml
 COPY auth-service/pom.xml auth-service/pom.xml
 COPY order-service/pom.xml order-service/pom.xml
 

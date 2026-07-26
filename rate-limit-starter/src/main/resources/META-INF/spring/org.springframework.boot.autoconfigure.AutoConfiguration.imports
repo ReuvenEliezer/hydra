@@ -1,0 +1,2 @@
+com.reuven.ratelimit.RateLimitAutoConfiguration
+com.reuven.ratelimit.RateLimitRedisAutoConfiguration

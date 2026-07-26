@@ -20,6 +20,7 @@
     <modules>
         <module>infra-shared</module>
         <module>infra-database</module>
+        <module>rate-limit-starter</module>
         <module>auth-service</module>
         <module>order-service</module>
         <module>integration-tests</module>

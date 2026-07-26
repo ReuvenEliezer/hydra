@@ -1,11 +1,11 @@
-package com.reuven.auth.ratelimit;
+package com.reuven.ratelimit;
 
 import java.time.Duration;
 
 /**
- * Thrown by {@link RateLimiter} when a request exceeds its configured limit.
- * Carries how long the caller should wait before retrying, so
- * {@code GlobalExceptionHandler} can set a {@code Retry-After} header.
+ * Thrown by any {@link RateLimiterEngine} implementation when a request exceeds its
+ * configured limit. Carries how long the caller should wait before retrying, so each
+ * service's {@code GlobalExceptionHandler} can set a {@code Retry-After} header.
  */
 public class RateLimitExceededException extends RuntimeException {
 

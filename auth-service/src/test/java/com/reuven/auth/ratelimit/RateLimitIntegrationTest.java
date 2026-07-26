@@ -4,6 +4,8 @@ import com.reuven.auth.BaseIntegrationTest;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
+import com.reuven.ratelimit.ClientIpResolver;
+import com.reuven.ratelimit.RateLimitErrorCodes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,20 +37,21 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
     @DynamicPropertySource
     static void rateLimitProperties(DynamicPropertyRegistry registry) {
         registry.add("rate-limit.enabled", () -> "true");
-        registry.add("rate-limit.login.per-ip.capacity", () -> "3");
-        registry.add("rate-limit.login.per-ip.window", () -> "PT1M");
-        registry.add("rate-limit.login.per-username.capacity", () -> "3");
-        registry.add("rate-limit.login.per-username.window", () -> "PT1M");
-        registry.add("rate-limit.refresh.per-ip.capacity", () -> "3");
-        registry.add("rate-limit.refresh.per-ip.window", () -> "PT1M");
-        registry.add("rate-limit.refresh.per-token.capacity", () -> "3");
-        registry.add("rate-limit.refresh.per-token.window", () -> "PT1M");
+        registry.add("rate-limit.limits.login-ip.capacity", () -> "3");
+        registry.add("rate-limit.limits.login-ip.window", () -> "PT1M");
+        registry.add("rate-limit.limits.login-username.capacity", () -> "3");
+        registry.add("rate-limit.limits.login-username.window", () -> "PT1M");
+        registry.add("rate-limit.limits.refresh-ip.capacity", () -> "3");
+        registry.add("rate-limit.limits.refresh-ip.window", () -> "PT1M");
+        registry.add("rate-limit.limits.refresh-token.capacity", () -> "3");
+        registry.add("rate-limit.limits.refresh-token.window", () -> "PT1M");
     }
 
     private User testUser;
 
     @BeforeEach
-    void seedUser() {
+    protected void setUp() throws Exception {
+        super.setUp();
         testTenant = tenantRepository.save(new Tenant("Acme Corp", EntityStatus.ACTIVE));
         testUser = userRepository.save(new User(testTenant, "rate-limit-user",
                 passwordEncoder.encode(USER_PASSWORD), com.reuven.Role.USER, EntityStatus.ACTIVE));
@@ -60,7 +63,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("login: exceeding the per-IP limit returns 429 with Retry-After and the required error body")
+    @DisplayName("login: exceeding per-IP limit returns 429 with Retry-After header and error body")
     void login_exceedingPerIpLimit_returns429() throws Exception {
         // 3 requests allowed (wrong password each time is fine - only the COUNT matters
         // for the rate limiter, which runs before authentication).
@@ -95,13 +98,14 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
         // Exhaust "rate-limit-user"'s budget, all calls simulated from IP 10.0.0.1.
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(post(LOGIN_URL)
-                    .header("X-Forwarded-For", "10.0.0.1")
+                    .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.1")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
                     .content(loginBody("rate-limit-user", "wrong-password")));
         }
+
         mockMvc.perform(post(LOGIN_URL)
-                        .header("X-Forwarded-For", "10.0.0.1")
+                        .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
                         .content(loginBody("rate-limit-user", "wrong-password")))
@@ -111,7 +115,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
         // neither its per-username nor its per-IP budget has been touched by the above,
         // so this must succeed - proving the two (username, ip) pairs don't share state.
         mockMvc.perform(post(LOGIN_URL)
-                        .header("X-Forwarded-For", "10.0.0.2")
+                        .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.2")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
                         .content(loginBody("rate-limit-user-2", USER_PASSWORD)))
@@ -119,7 +123,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("refresh: exceeding the per-IP limit returns 429, even with no cookie presented at all")
+    @DisplayName("refresh: exceeding per-IP limit returns 429 without requiring cookies")
     void refresh_exceedingPerIpLimit_returns429EvenWithoutCookie() throws Exception {
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(post(REFRESH_URL))

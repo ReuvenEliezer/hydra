@@ -28,14 +28,15 @@ class RateLimitDisabledIntegrationTest extends BaseIntegrationTest {
         registry.add("rate-limit.enabled", () -> "false");
         // Deliberately tiny capacity: if the enabled flag were NOT actually honored,
         // the very first extra request beyond 1 would immediately fail this test.
-        registry.add("rate-limit.login.per-ip.capacity", () -> "1");
-        registry.add("rate-limit.login.per-ip.window", () -> "PT1M");
-        registry.add("rate-limit.login.per-username.capacity", () -> "1");
-        registry.add("rate-limit.login.per-username.window", () -> "PT1M");
+        registry.add("rate-limit.limits.login-ip.capacity", () -> "1");
+        registry.add("rate-limit.limits.login-ip.window", () -> "PT1M");
+        registry.add("rate-limit.limits.login-username.capacity", () -> "1");
+        registry.add("rate-limit.limits.login-username.window", () -> "PT1M");
     }
 
     @BeforeEach
-    void seedTenant() {
+    protected void setUp() throws Exception {
+        super.setUp();
         testTenant = tenantRepository.save(new Tenant("Acme Corp", EntityStatus.ACTIVE));
     }
 
