@@ -12,10 +12,6 @@
     <name>auth-service</name>
     <description>auth-service</description>
 
-    <properties>
-        <bucket4j.version>8.14.0</bucket4j.version>
-    </properties>
-
     <dependencies>
 
         <dependency>
@@ -45,19 +41,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- Rate limiting (see features/rate-limited): distributed, Redis-backed token
-             buckets. bucket4j_jdk17-lettuce pulls in bucket4j_jdk17-redis-common and reuses
-             this module's existing spring-boot-starter-data-redis/Lettuce stack - no second
-             Redis client library is introduced. -->
+        <!-- Declarative, distributed rate limiting (@RateLimited on any controller method).
+             Brings its own AOP/Bucket4j/Redis stack and auto-configures the engine, aspect,
+             and 429 exception handler - see rate-limit-starter/RateLimitAutoConfiguration. -->
         <dependency>
-            <groupId>com.bucket4j</groupId>
-            <artifactId>bucket4j_jdk17-core</artifactId>
-            <version>${bucket4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.bucket4j</groupId>
-            <artifactId>bucket4j_jdk17-lettuce</artifactId>
-            <version>${bucket4j.version}</version>
+            <groupId>com.reuven</groupId>
+            <artifactId>rate-limit-starter</artifactId>
+            <version>${project.version}</version>
         </dependency>
 <!--        <dependency>-->
 <!--            <groupId>org.springframework.boot</groupId>-->

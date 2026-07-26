@@ -1,13 +1,9 @@
 package com.reuven.auth.exception;
 
 import com.reuven.ErrorResponse;
-import com.reuven.auth.ratelimit.RateLimitErrorCodes;
-import com.reuven.auth.ratelimit.RateLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
@@ -76,20 +72,6 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {
         return errorResponse(HttpStatus.UNAUTHORIZED, "Invalid credentials", request);
-    }
-
-    @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest request) {
-        log.warn("Rate limit exceeded at {}: {}", request.getRequestURI(), ex.getMessage());
-        long retryAfterSeconds = Math.max(1, ex.retryAfter().toSeconds());
-        ErrorResponse body = new ErrorResponse(
-                HttpStatus.TOO_MANY_REQUESTS.value(),
-                RateLimitErrorCodes.RATE_LIMIT_EXCEEDED,
-                ex.getMessage(),
-                request.getRequestURI());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
-                .body(body);
     }
 
     @ExceptionHandler(Exception.class)

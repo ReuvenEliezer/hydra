@@ -1,9 +1,6 @@
-package com.reuven.auth.ratelimit;
+package com.reuven.ratelimit;
 
-import com.reuven.ratelimit.Bucket4jRateLimiterEngine;
-import com.reuven.ratelimit.RateLimitExceededException;
-import com.reuven.ratelimit.RateLimitProperties;
-import com.reuven.ratelimit.RateLimiterEngine;
+import com.redis.testcontainers.RedisContainer;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
@@ -15,10 +12,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
 import java.util.List;
@@ -34,33 +29,31 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * Exercises {@link Bucket4jRateLimiterEngine} directly against a real redis:8.8-alpine
- * container - no Spring context, mirroring RefreshTokenServiceTest's approach for the
- * same reasons (fast, and proves the actual atomic Redis behavior rather than a mock's
- * assumptions about it).
+ * Exercises {@link Bucket4jRateLimiterEngine} directly against a real Redis container -
+ * no Spring context, proving the actual atomic Redis behavior rather than a mock's
+ * assumptions about it. Lives here (not in a consuming service) since this is the
+ * engine's own contract, independent of who calls it.
  */
 @Testcontainers
-class RateLimiterTest {
+class Bucket4jRateLimiterEngineTest {
 
     private static final RateLimitProperties.Limit CAPACITY_3 =
             new RateLimitProperties.Limit(3, Duration.ofMinutes(1));
 
     @Container
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:8.8-alpine"))
-            .withExposedPorts(6379);
+    static RedisContainer redis = new RedisContainer("redis:8.8-alpine").withReuse(true);
 
     private static RedisClient redisClient;
     private static StatefulRedisConnection<byte[], byte[]> connection;
     private static ProxyManager<byte[]> proxyManager;
 
     private SimpleMeterRegistry meterRegistry;
-    private RateLimiterEngine engine;
+    private Bucket4jRateLimiterEngine engine;
 
     @BeforeEach
     void setUp() {
         if (redisClient == null) {
-            String uri = "redis://" + redis.getHost() + ":" + redis.getMappedPort(6379);
-            redisClient = RedisClient.create(uri);
+            redisClient = RedisClient.create(redis.getRedisURI());
             connection = redisClient.connect(ByteArrayCodec.INSTANCE);
             proxyManager = LettuceBasedProxyManager.builderFor(connection).build();
         }

@@ -4,13 +4,14 @@ import com.reuven.Headers;
 import com.reuven.auth.dto.AuthResponse;
 import com.reuven.auth.dto.LoginRequest;
 import com.reuven.auth.exception.AuthErrorCodes;
-import com.reuven.auth.ratelimit.ClientIpResolver;
-import com.reuven.auth.ratelimit.RateLimiter;
 import com.reuven.auth.service.AuthService;
 import com.reuven.auth.service.CookieUtil;
 import com.reuven.auth.service.JwtProvider;
 import com.reuven.auth.service.RefreshTokenService;
 import com.reuven.auth.service.RotationResult;
+import com.reuven.auth.util.Sha256;
+import com.reuven.ratelimit.RateLimited;
+import com.reuven.ratelimit.RateLimiterEngine;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -25,30 +26,37 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@RequiredArgsConstructor
+//@RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
     private final JwtProvider jwtProvider;
     private final CookieUtil cookieUtil;
-    private final RateLimiter rateLimiter;
+    private final RateLimiterEngine rateLimiterEngine;
+
+    public AuthController(AuthService authService, RefreshTokenService refreshTokenService, JwtProvider jwtProvider, CookieUtil cookieUtil, RateLimiterEngine rateLimiterEngine) {
+        this.authService = authService;
+        this.refreshTokenService = refreshTokenService;
+        this.jwtProvider = jwtProvider;
+        this.cookieUtil = cookieUtil;
+        this.rateLimiterEngine = rateLimiterEngine;
+    }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(
+    @RateLimited(limit = "login-ip", key = "T(com.reuven.ratelimit.ClientIpResolver).resolve(#httpRequest)")
+    @RateLimited(limit = "login-username", key = "#request.username()?.toLowerCase()")
+    public AuthResponse login(
             @RequestHeader(Headers.TENANT_ID) UUID tenantId,
             @Valid @RequestBody LoginRequest request,
-            HttpServletRequest httpRequest) {
-
-        rateLimiter.checkLoginIp(ClientIpResolver.resolve(httpRequest));
-        rateLimiter.checkLoginUsername(request.username());
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
 
         AuthService.LoginResult result = authService.login(request, tenantId);
         ResponseCookie cookie = cookieUtil.buildRefreshCookie(result.rawRefreshToken());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(result.body());
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        return result.body();
     }
 
     /**
@@ -58,25 +66,32 @@ public class AuthController {
      * cookie are returned.
      */
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(
+    @RateLimited(limit = "refresh-ip", key = "T(com.reuven.ratelimit.ClientIpResolver).resolve(#httpRequest)")
+    public AuthResponse refresh(
             @CookieValue(name = CookieUtil.REFRESH_COOKIE_NAME, required = false) String refreshToken,
-            HttpServletRequest httpRequest) {
-
-        rateLimiter.checkRefreshIp(ClientIpResolver.resolve(httpRequest));
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
 
         if (refreshToken == null || refreshToken.isBlank()) {
-            return unauthorizedClearingCookie(AuthErrorCodes.INVALID_REFRESH_TOKEN);
+            ResponseCookie expired = cookieUtil.buildExpiredCookie();
+            httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            httpResponse.addHeader(HttpHeaders.SET_COOKIE, expired.toString());
+            return new AuthResponse(null, null, AuthErrorCodes.INVALID_REFRESH_TOKEN);
         }
 
-        rateLimiter.checkRefreshToken(refreshToken);
+        // Can't be a static @RateLimited: there's nothing to hash until we know the
+        // cookie is present, so the aspect has no key to evaluate up front. Explicit
+        // call to the same engine every declarative check ultimately reaches - the
+        // aspect stays a dumb, generic gate rather than growing an "is this endpoint
+        // special" branch.
+        rateLimiterEngine.consume("refresh-token", Sha256.hash(refreshToken));
 
         RotationResult rotation = refreshTokenService.rotate(refreshToken);
         String accessToken = jwtProvider.generateToken(rotation.userId(), rotation.tenantId(), rotation.roles());
         ResponseCookie cookie = cookieUtil.buildRefreshCookie(rotation.rawRefreshToken());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(new AuthResponse(rotation.userId(), accessToken));
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        return new AuthResponse(rotation.userId(), accessToken);
     }
 
     @PostMapping("/logout")
@@ -91,10 +106,4 @@ public class AuthController {
         response.addHeader(HttpHeaders.SET_COOKIE, cookieUtil.buildExpiredCookie().toString());
     }
 
-    private ResponseEntity<AuthResponse> unauthorizedClearingCookie(String errorCode) {
-        ResponseCookie expired = cookieUtil.buildExpiredCookie();
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header(HttpHeaders.SET_COOKIE, expired.toString())
-                .body(new AuthResponse(null, null, errorCode));
-    }
 }

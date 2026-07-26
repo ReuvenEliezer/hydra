@@ -9,7 +9,8 @@ import java.util.Base64;
  * SHA-256 + URL-safe-Base64 hashing, used wherever a secret (a refresh token) needs to
  * be turned into a stable, non-reversible identifier - as a Redis key, never logged or
  * stored in its raw form. One implementation shared by {@code RefreshTokenService} and
- * {@code RateLimiter} rather than each hand-rolling the same digest+encode logic.
+ * {@code AuthController} (before handing the hash to {@code RateLimiterEngine.consume})
+ * rather than each hand-rolling the same digest+encode logic.
  */
 public final class Sha256 {
 
