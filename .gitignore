@@ -1,0 +1,19 @@
+# Build output
+target/
+*/target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Env / secrets
+.env
+*.env.local
