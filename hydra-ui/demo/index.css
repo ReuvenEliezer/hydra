@@ -1,0 +1,5 @@
+@import "../src/styles/index.css";
+
+/* The demo app's Vite root is `demo/`, so Tailwind's automatic content detection never
+   walks up into `../src` on its own — this tells it to scan the library source too. */
+@source "../src";

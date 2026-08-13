@@ -21,3 +21,6 @@ jwt:
 refresh-token:
   cookie:
     secure: false
+hydra:
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:6006

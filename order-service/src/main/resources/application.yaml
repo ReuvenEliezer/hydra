@@ -16,6 +16,12 @@ spring:
         jwt:
           jwk-set-uri: ${AUTH_SERVICE_URL:http://localhost:8083}/.well-known/jwks.json
           issuer-uri: ${AUTH_SERVICE_ISSUER:hydra-auth-service}
+# Browser origins allowed to call this API. Explicit origins only - "*" is illegal
+# alongside allowCredentials(true). Comma-separated.
+hydra:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    max-age: ${CORS_MAX_AGE:PT30M}
 management:
   endpoints:
     web:
