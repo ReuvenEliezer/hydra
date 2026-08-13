@@ -3,6 +3,7 @@ package com.reuven.auth.config;
 import com.reuven.Role;
 import com.reuven.auth.service.JwtAuthenticationFilter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -22,14 +23,21 @@ import org.springframework.security.config.Customizer;
 public class SecurityCommons {
 
     /**
-     * Applies the baseline security posture: CSRF off (stateless JWT API),
-     * STATELESS session, and the JWT filter wired before the standard
-     * UsernamePasswordAuthenticationFilter. Custom entry points return
+     * Applies the baseline security posture: CORS from the shared
+     * {@link org.springframework.web.cors.CorsConfigurationSource} bean, CSRF off
+     * (stateless JWT API), STATELESS session, and the JWT filter wired before the
+     * standard UsernamePasswordAuthenticationFilter. Custom entry points return
      * structured JSON-compatible status codes without leaking stack traces.
+     * <p>
+     * CORS is applied here rather than in each chain so the {@code local} (H2 console)
+     * and {@code !local} chains can never drift apart on it - a browser client that
+     * works in one profile and mysteriously fails in the other is exactly the bug this
+     * placement prevents.
      */
     public HttpSecurity applyCommonSecurity(HttpSecurity http,
                                             JwtAuthenticationFilter jwtAuthFilter) throws Exception {
         return http
+                .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) -> {
@@ -52,6 +60,11 @@ public class SecurityCommons {
      */
     public Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry> authRules() {
         return auth -> auth
+                // Preflight carries no credentials by design, so it can never authenticate.
+                // Spring's CorsFilter normally short-circuits it before authorization runs;
+                // this rule is the explicit backstop so a filter-order change can't turn every
+                // cross-origin call into a 401 on the OPTIONS that precedes it.
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/v1/auth/login").permitAll()
                 .requestMatchers("/api/v1/auth/refresh").permitAll()
                 .requestMatchers("/api/v1/auth/logout").permitAll()
