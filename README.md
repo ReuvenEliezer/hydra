@@ -61,7 +61,51 @@ Build and test the whole reactor:
 mvn clean install
 ```
 
-`auth-service` needs a signing key at startup — see `application-local.yml` / `application-prod.yml` for the expected `JWT_PRIVATE_KEY_PATH` (or equivalent) configuration. CI generates an ephemeral RSA keypair per run (see `.github/workflows/ci.yml`) purely for tests; it is not a real credential.
+### Running `auth-service` with the `local` profile
+
+`local` is the default active profile (`spring.profiles.active` in `application.yaml`), and it needs two things `application-local.yml` doesn't provide a default for:
+
+- `jwt.private-key-path` (`${JWT_PRIVATE_KEY_PATH}`) — an RSA private key, PKCS#8 PEM, that `LocalKeyProvider` loads from disk to sign tokens (the public key/JWKS entry is always derived from it, never loaded separately).
+- `app.bootstrap.super-admin-password` (`${APP_BOOTSTRAP_SUPER_ADMIN_PASSWORD}`) — password for the `super-admin` user that `BootstrapService` creates on first boot (only when the `users` table is empty), under a generated `System Tenant`.
+
+Neither is set anywhere in the repo, so starting `auth-service` without them fails fast with a `PlaceholderResolutionException`.
+
+**1. Generate a local signing key** (PKCS#8 PEM, not committed — `keys/` is gitignored):
+
+```bash
+mkdir -p keys
+openssl genpkey -algorithm RSA -out keys/jwt-private-key-local.pem -pkeyopt rsa_keygen_bits:2048
+chmod 600 keys/jwt-private-key-local.pem
+```
+
+**2. Set the env vars and run:**
+
+```bash
+export JWT_PRIVATE_KEY_PATH="$(pwd)/keys/jwt-private-key-local.pem"
+export APP_BOOTSTRAP_SUPER_ADMIN_PASSWORD=admin12345
+mvn -pl auth-service -am spring-boot:run
+```
+
+In IntelliJ, use a Spring Boot run configuration for `com.reuven.auth.AuthServiceApplication` with those two vars under Environment Variables instead (a shareable one lives at `.run/AuthServiceApplication.run.xml` — update the key path and password there rather than duplicating the config elsewhere).
+
+**3. Look up the bootstrap tenant.** `BootstrapService` doesn't log the generated tenant UUID, so fetch it via the H2 console (enabled in `local`, at `http://localhost:8083/h2-console`, JDBC URL/credentials from `application-local.yml`):
+
+```sql
+SELECT id, name FROM tenants;
+```
+
+**4. Log in to get a token** (`auth-service` listens on `:8083`):
+
+```bash
+curl -i -X POST http://localhost:8083/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: <tenant-uuid-from-step-3>" \
+  -d '{"username":"super-admin","password":"admin12345"}'
+```
+
+The access token comes back in the JSON body (`AuthResponse`); the refresh token is set as an httpOnly cookie, not returned in the body.
+
+CI generates its own ephemeral RSA keypair per run (see `.github/workflows/ci.yml`) purely for tests — that key is not a real credential and is unrelated to the one you generate locally.
 
 ## Design principles
 

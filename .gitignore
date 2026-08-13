@@ -17,3 +17,4 @@ target/
 # Env / secrets
 .env
 *.env.local
+keys/
