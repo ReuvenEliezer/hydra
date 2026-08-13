@@ -1,82 +1,77 @@
 # Hydra
 
-Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with shared infrastructure modules, Redis-backed distributed state, and a Kubernetes/Envoy Gateway edge layer.
-
-> **Note:** This README was drafted from architectural context, not a live scan of the repo. Verify module names, versions, and paths against the actual source before relying on it — see the review checklist at the bottom.
+Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with a framework-free shared core, a dedicated Redis-backed rate-limiting starter, and JWT-based auth issued by `auth-service` and consumed by `order-service`.
 
 ## Modules
 
 | Module | Purpose |
 |---|---|
-| `auth-service` | Authentication/authorization service. JWT issuance, refresh token rotation (Redis + Lua, atomic), per-client rate limiting via `infra-ratelimit`. |
-| `order-service` | Order domain service. |
-| `infra-shared` | Pure POJO module — **no framework dependencies**. Cross-cutting types shared across services. Hard constraint: keep this framework-free. |
-| `infra-database` | Shared persistence infrastructure. |
-| `infra-ratelimit` | Spring Boot auto-configuration module for rate limiting. Contains `RateLimiterAspect`, `@RateLimited`, SpEL expression caching, `RateLimiterEngine` (interface) with `Bucket4jRateLimiterEngine`, `ClientIpResolver`, `RateLimitProperties`, `RateLimitRedisConfig`, `RateLimitExceptionHandler`. Registered via `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. |
+| `auth-service` | Authentication service. Login/refresh/logout, JWT issuance (RSA-signed, JWKS endpoint), refresh token rotation via atomic Redis Lua scripts, tenant/user bootstrap, admin user registration. |
+| `order-service` | Order domain service. CRUD-style order API, secured as an OAuth2 resource server validating JWTs issued by `auth-service`. |
+| `infra-shared` | Pure POJO module — **no framework dependencies**. Shared types: `AuthenticatedUser`, `Role`/`Roles`, `Headers`, `JwtClaimNames`, `ErrorResponse`. |
+| `infra-database` | Shared persistence infrastructure (Postgres, H2 for tests, Liquibase, Spring Data JPA). |
+| `rate-limit-starter` | Spring Boot auto-configuration module for declarative rate limiting: `@RateLimited` + AOP (`RateLimiterAspect`), SpEL key expressions, `RateLimiterEngine` abstraction with a Bucket4j/Redis-Lettuce implementation (`Bucket4jRateLimiterEngine`) and a `NoOpRateLimiterEngine`, `ClientIpResolver`, `RateLimitExceptionHandler`. Registered via `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. |
+| `integration-tests` | Cross-service integration tests only (no `src/main`). Boots `auth-service` and `order-service` as real Spring contexts in the same JVM and exercises the actual HTTP/JWT contract between them. Builds last in the reactor. |
 
 ## Architecture
 
+### Auth flow
+
+- `auth-service` issues RSA-signed JWTs; public keys are exposed at `/.well-known/jwks.json` (`JwksController`) for resource servers to validate against.
+- `POST /api/v1/auth/login`, `/refresh`, `/logout` (`AuthController`); `POST /api/v1/admin/register-user` and `/api/v1/admin/{tenantId}/register-admin` (`AdminController`).
+- Refresh token rotation is atomic via Lua scripts loaded from the classpath at `lua/<name>.lua` (`refresh_issue`, `refresh_rotate`, `refresh_revoke_family`, `refresh_revoke_all`) — the resource path under `src/main/resources/lua/` is load-path-authoritative, not cosmetic.
+- `order-service` validates those JWTs as an OAuth2 resource server; `OrderController` exposes `/api/orders` (list, create, get by id, delete).
+- Key material comes from `KeyProvider` implementations: `LocalKeyProvider` (dev) and `CloudKeyProvider` (AWS Secrets Manager, via `software.amazon.awssdk:secretsmanager`).
+
 ### Rate limiting
 
-- Dedicated auto-configuration module (`infra-ratelimit`), not embedded in `infra-shared`.
-- Engine abstraction (`RateLimiterEngine`) with a Bucket4j-backed implementation, so the algorithm can be swapped without touching call sites.
-- AOP-based (`RateLimiterAspect` + `@RateLimited`), with SpEL for dynamic key expressions.
-- Redis-backed bucket state for cross-instance consistency.
-- `type: Local` at the Envoy layer does **not** provide per-IP bucketing — that requires `type: Global` with a Redis-backed ratelimit service. (Documented in-line in the K8s rate-limit policy.)
+- Dedicated auto-configuration module (`rate-limit-starter`), deliberately kept out of `infra-shared` so the shared core stays framework-free.
+- Engine abstraction (`RateLimiterEngine`) with a Bucket4j/Redis-backed implementation and a no-op fallback, so the algorithm/backend can be swapped without touching call sites.
+- AOP-based (`RateLimiterAspect` + `@RateLimited`), with SpEL for dynamic key expressions; `auth-service` is the current consumer.
+
+### Persistence
+
+- Postgres 16 in production/dev (`infra-database`), H2 for tests.
+- Liquibase-managed schema per service (`auth-service`: `db/changelog/`, `order-service`: `changes/`).
 
 ### Redis
 
-- Redis 7.4, client: Lettuce.
-- Refresh token rotation is atomic via Lua scripts, loaded from the classpath at `lua/<name>.lua` (`ClassPathResource("lua/" + name + ".lua")` — directory naming is load-path-authoritative).
-- `LettuceBasedProxyManager` backed by a Spring-managed connection bean (`@Bean(destroyMethod = "close")`).
-
-### Edge layer (Kubernetes / Envoy Gateway)
-
-Manifests under `k8s/`. Current state:
-
-- Routing: `/api/v1/orders` → `/api/orders` via `URLRewrite` filter.
-- `SecurityPolicy` forwards JWT claims `sub` / `tenantId` as headers `x-user-id` / `x-tenant-id` via `claimToHeaders`.
-- Rate-limit policy currently `type: Local` (see caveat above); `type: Global` + Redis-backed limiter needed for real per-IP bucketing across replicas.
-- `k8s/README.md` documents a bootstrap workaround (raw SQL) for first-admin creation.
-- No GitOps layer — `kubectl apply` is imperative. ArgoCD/dashboard not yet added.
-
-**Open question:** whether Kubernetes is the right production target, or whether plain Envoy in docker-compose gets the same edge JWT validation + rate limiting with materially less operational overhead. Worth resolving before investing further in the K8s layer (e.g. GitOps).
+- Client: Lettuce. Used for refresh-token state (`auth-service`) and distributed rate-limit buckets (`rate-limit-starter`).
+- `LettuceBasedProxyManager` backed by a Spring-managed connection bean.
 
 ## Tech stack
 
-- Java 25, Spring Boot 4.1, Spring AOP, Spring Data Redis
-- Bucket4j (rate limiting), Lettuce (Redis client)
-- Testcontainers with typed `RedisContainer` for integration tests
-- Maven multi-module build
-- Kubernetes + Envoy Gateway (edge), docker-compose (local dev — candidate alternative to K8s)
+- Java 25, Spring Boot 4.1, Spring Security (incl. OAuth2 resource server), Spring Data JPA, Spring Data Redis, Spring AOP
+- Nimbus JOSE+JWT (RSA signing/JWKS), Bucket4j + Lettuce (rate limiting), Liquibase, Lombok
+- AWS SDK v2 (`secretsmanager`) for cloud key material
+- Testcontainers (Postgres, Redis) + JUnit 5 + AssertJ across all modules
+- Maven multi-module build (reactor order: `infra-shared` → `infra-database` → `rate-limit-starter` → `auth-service` → `order-service` → `integration-tests`)
 
 ## Getting started
+
+Start local infra (Postgres + Redis):
+
+```bash
+docker compose up -d
+```
+
+Build and test the whole reactor:
 
 ```bash
 mvn clean install
 ```
 
-> Fill in actual run/dev instructions (docker-compose services, required env vars, local Redis setup) once confirmed against the repo.
+`auth-service` needs a signing key at startup — see `application-local.yml` / `application-prod.yml` for the expected `JWT_PRIVATE_KEY_PATH` (or equivalent) configuration. CI generates an ephemeral RSA keypair per run (see `.github/workflows/ci.yml`) purely for tests; it is not a real credential.
 
 ## Design principles
 
-- **No framework code in `infra-shared`.** It stays a plain POJO jar. New cross-cutting infra concerns get their own dedicated module (see `infra-ratelimit`).
+See [`.specify/memory/constitution.md`](.specify/memory/constitution.md) for the full, governing version. Summary:
+
+- **No framework code in `infra-shared`.** It stays a plain POJO jar. New cross-cutting infra concerns get their own dedicated module (see `rate-limit-starter`).
 - **Classpath paths are load-path-authoritative**, not cosmetic (e.g. `lua/` for Redis scripts).
-- **Audit before adding.** This repo tends to carry partially-completed refactors; confirm current state before building on top of it.
+- **Multi-step Redis mutations must be atomic** (Lua scripts), never read-modify-write round trips.
+- **Audit before adding.** This repo carries partially-completed refactors; confirm current state against source before building on top of it — README and other docs are advisory, not authoritative.
 
-## Roadmap / known gaps
+## CI
 
-- [ ] Decide: Kubernetes vs. plain Envoy + docker-compose for production edge.
-- [ ] If staying on K8s: add GitOps (ArgoCD) instead of imperative `kubectl apply`.
-- [ ] Management/dashboard layer — not yet started, separate phase.
-- [ ] Replace raw-SQL first-admin bootstrap with a proper mechanism.
-
----
-
-### Review checklist (fill in / correct before committing)
-
-- [ ] Confirm actual module list and names against `pom.xml` files
-- [ ] Confirm Java/Spring Boot versions in the parent POM
-- [ ] Add real build/run instructions (docker-compose file, ports, env vars)
-- [ ] Add license/ownership info if relevant
-- [ ] Link to `k8s/README.md` and any other module-level READMEs
+GitHub Actions (`.github/workflows/ci.yml`): builds the reactor, then runs the full test suite (unit + Testcontainers-backed integration tests, including the cross-service `integration-tests` module) with per-module JUnit reports via `dorny/test-reporter`.
