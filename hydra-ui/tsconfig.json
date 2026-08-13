@@ -1,0 +1,52 @@
+{
+  // Path aliases below are used by tests, stories and consuming editors. Files under
+  // src/ deliberately import each other with RELATIVE paths: the published .d.ts files
+  // are emitted by vite-plugin-dts and an alias that survives into a declaration file
+  // is unresolvable for anyone installing the package.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    // Explicit list: `vitest/globals` and `vite/client` are not under @types, so they
+    // must be named, and naming any of them disables the automatic inclusion of the
+    // rest — which is why "node" is here for the config files' sake.
+    // jest-dom's matcher types come from the `@testing-library/jest-dom/vitest` import
+    // in tests/setup.ts, not from this list.
+    "types": ["vitest/globals", "vite/client", "node"],
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@components/*": ["src/components/*"],
+      "@hooks/*": ["src/hooks/*"],
+      "@lib/*": ["src/lib/*"],
+      "@styles/*": ["src/styles/*"],
+      "@hydra-types/*": ["src/types/*"]
+    }
+  },
+  "include": ["src", "tests", "stories", ".storybook", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["dist", "node_modules"]
+}

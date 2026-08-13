@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 configures itself from CSS — there is deliberately no tailwind.config.js.
+ * Tokens below are declared with @theme so they become real Tailwind utilities
+ * (bg-surface, text-danger, …) rather than raw custom properties, which is what lets a
+ * consuming app restyle a component through className without forking it.
+ */
+@theme {
+  --color-surface: oklch(100% 0 0);
+  --color-surface-muted: oklch(97% 0.005 250);
+  --color-border-subtle: oklch(90% 0.01 250);
+
+  --color-content: oklch(25% 0.02 250);
+  --color-content-muted: oklch(52% 0.02 250);
+
+  --color-brand: oklch(55% 0.17 255);
+  --color-brand-hover: oklch(48% 0.17 255);
+  --color-brand-content: oklch(100% 0 0);
+
+  --color-danger: oklch(55% 0.19 25);
+  --color-danger-surface: oklch(96% 0.03 25);
+
+  --color-success: oklch(58% 0.14 155);
+  --color-warning: oklch(70% 0.15 75);
+
+  --radius-control: 0.5rem;
+}
+
+/* Dark palette overrides the same custom properties `@theme` emitted onto :root.
+   Plain CSS rather than a second `@theme` block — `@theme` is a top-level declaration
+   in Tailwind v4 and cannot be nested inside an at-rule.
+ *
+ * Three states, same variable set, so nothing in the component layer ever branches on
+ * theme:
+ *  1. No opinion from the app: follows `prefers-color-scheme`, unless...
+ *  2. ...the app sets `data-theme="light"` on <html> - forces light regardless of OS.
+ *  3. ...the app sets `data-theme="dark"` on <html> - forces dark regardless of OS.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-surface: oklch(21% 0.015 250);
+    --color-surface-muted: oklch(26% 0.015 250);
+    --color-border-subtle: oklch(35% 0.015 250);
+
+    --color-content: oklch(96% 0.005 250);
+    --color-content-muted: oklch(72% 0.015 250);
+
+    --color-danger-surface: oklch(28% 0.06 25);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-surface: oklch(21% 0.015 250);
+  --color-surface-muted: oklch(26% 0.015 250);
+  --color-border-subtle: oklch(35% 0.015 250);
+
+  --color-content: oklch(96% 0.005 250);
+  --color-content-muted: oklch(72% 0.015 250);
+
+  --color-danger-surface: oklch(28% 0.06 25);
+}
+
+/* Status colours are keyed by the backend's OrderStatus enum so a new status added
+   server-side shows up as an obvious unstyled badge rather than a silently wrong one. */
+@layer components {
+  .hydra-status-PENDING {
+    @apply bg-surface-muted text-content-muted;
+  }
+  .hydra-status-SHIPPED {
+    @apply bg-brand/10 text-brand;
+  }
+  .hydra-status-DELIVERED {
+    @apply bg-success/10 text-success;
+  }
+  .hydra-status-CANCELLED {
+    @apply bg-danger-surface text-danger;
+  }
+}
