@@ -48,6 +48,7 @@ class RefreshTokenServiceTest {
 
     private final UUID userId = UUID.randomUUID();
     private final UUID tenantId = UUID.randomUUID();
+    private final String username = "test-user";
     private final List<Role> roles = List.of(Role.USER);
 
     @BeforeEach
@@ -71,7 +72,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("issue() then rotate() with the fresh token succeeds and invalidates the original")
     void rotate_withValidToken_succeedsAndInvalidatesOriginal() {
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
 
         RotationResult result = service.rotate(original);
 
@@ -94,7 +95,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("Concurrent rotate() replay within the grace window returns the same new token, idempotently")
     void rotate_replayedWithinGraceWindow_isIdempotent() {
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
 
         RotationResult first = service.rotate(original);
         // Simulates a second browser tab firing the same refresh concurrently, just
@@ -108,7 +109,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("rotate() presented again after the grace window has expired is treated as reuse")
     void rotate_presentedAfterGraceWindowExpires_isReuse() throws InterruptedException {
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
         service.rotate(original);
 
         Thread.sleep(400); // grace TTL in this test is 300ms
@@ -120,7 +121,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("Reuse detection revokes the entire family - even the latest, never-presented token stops working")
     void reuseDetected_revokesEntireFamily() throws InterruptedException {
-        String gen1 = service.issue(userId, tenantId, roles);
+        String gen1 = service.issue(userId, tenantId, username, roles);
         RotationResult gen2 = service.rotate(gen1);
         RotationResult gen3 = service.rotate(gen2.rawRefreshToken());
 
@@ -137,7 +138,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("logout() revokes the token's family; a subsequent rotate() fails")
     void logout_revokesFamily() {
-        String token = service.issue(userId, tenantId, roles);
+        String token = service.issue(userId, tenantId, username, roles);
 
         service.logout(token);
 
@@ -155,8 +156,8 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("revokeAllForUser() kills every family/session belonging to that user")
     void revokeAllForUser_killsEverySession() {
-        String session1 = service.issue(userId, tenantId, roles);
-        String session2 = service.issue(userId, tenantId, roles); // e.g. a second device/browser
+        String session1 = service.issue(userId, tenantId, username, roles);
+        String session2 = service.issue(userId, tenantId, username, roles); // e.g. a second device/browser
 
         service.revokeAllForUser(userId);
 
@@ -167,8 +168,8 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("Two concurrent login sessions for the same user are fully independent")
     void independentSessions_doNotInterfere() {
-        String session1 = service.issue(userId, tenantId, roles);
-        String session2 = service.issue(userId, tenantId, roles);
+        String session1 = service.issue(userId, tenantId, username, roles);
+        String session2 = service.issue(userId, tenantId, username, roles);
 
         service.logout(session1);
 
@@ -179,7 +180,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("32 threads racing rotate() on the SAME token produce exactly one winner - no dual successor")
     void rotate_32ConcurrentCallers_exactlyOneWinnerNoDualSuccessor() throws InterruptedException, ExecutionException {
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
 
         int threadCount = 32;
         ExecutorService pool = Executors.newFixedThreadPool(threadCount);
@@ -231,7 +232,7 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("Redis key footprint after issue+rotate is small and bounded, not growing per historical hash")
     void rotate_leavesSmallBoundedRedisFootprint() {
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
         RotationResult rotation = service.rotate(original);
 
         Set<String> allKeys = redisTemplate.keys("rt:*");
@@ -263,7 +264,7 @@ class RefreshTokenServiceTest {
         // exist at all, so any replay attempt at 150ms would already see it as
         // reuse. Asserting the replay succeeds at 150ms and fails at 400ms proves
         // millisecond precision end to end.
-        String original = service.issue(userId, tenantId, roles);
+        String original = service.issue(userId, tenantId, username, roles);
         RotationResult first = service.rotate(original);
 
         Thread.sleep(150); // well within the 300ms grace window
@@ -282,7 +283,7 @@ class RefreshTokenServiceTest {
     @DisplayName("issued token's Redis TTL matches the configured refresh TTL, not some default")
     void issue_setsPreciseRefreshTtl() {
         Duration configuredTtl = Duration.ofDays(30);
-        String token = service.issue(userId, tenantId, roles);
+        String token = service.issue(userId, tenantId, username, roles);
 
         String hash = Sha256.hash(token);
         Long ttlMillis = redisTemplate.getExpire("rt:tok:" + hash, TimeUnit.MILLISECONDS);

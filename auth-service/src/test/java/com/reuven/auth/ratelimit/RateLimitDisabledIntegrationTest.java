@@ -6,6 +6,7 @@ import com.reuven.auth.entity.Tenant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -37,7 +38,7 @@ class RateLimitDisabledIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     protected void setUp() throws Exception {
         super.setUp();
-        testTenant = tenantRepository.save(new Tenant("Acme Corp", EntityStatus.ACTIVE));
+        testTenant = tenantRepository.save(new Tenant("Acme Corp", "acme", EntityStatus.ACTIVE));
     }
 
     private String loginBody(String username) {
@@ -51,7 +52,7 @@ class RateLimitDisabledIntegrationTest extends BaseIntegrationTest {
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post(LOGIN_URL)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                            .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                             .content(loginBody("whoever")))
                     // Wrong password -> 401 from normal auth logic, but crucially never 429.
                     .andExpect(status().isUnauthorized());

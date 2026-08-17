@@ -44,9 +44,8 @@ import "@hydra/ui/styles.css";
 export function App() {
   return (
     <HydraProvider
-      apiBaseUrl="https://auth.hydra.example.com"
+      apiBaseUrl="https://acme.hydra.example.com"
       ordersBaseUrl="https://orders.hydra.example.com"
-      tenantId={tenantId}
     >
       <SessionGate fallback={<LoginForm />} pending={<p>Restoring your session…</p>}>
         <OrderList />
@@ -56,14 +55,56 @@ export function App() {
 }
 ```
 
-`tenantId` is **required**. `AuthController.login` declares `X-Tenant-ID` with no
-default, so a login without it is rejected with `400 Missing header: X-Tenant-ID` before
-the credentials are even checked. How your app resolves the tenant (subdomain, config,
-a picker) is your call; supplying it is not optional.
+### `apiBaseUrl` must be on the tenant's own host
 
-It is only sent on the login request. Every other call derives the tenant server-side
-from the JWT `tenantId` claim, and `order-service` does not even allow the header
-through CORS.
+This is the one way to break the package silently, so it is worth a paragraph.
+
+The tenant is resolved from the `Host` of the **API request**, not of the page. The browser
+sets that from the URL you are calling. So a page served at `https://acme.hydra.example.com`
+must call `https://acme.hydra.example.com` (or, behind a path-routing edge, simply its own
+origin) — pointing `apiBaseUrl` at a hostless origin like `https://auth.hydra.example.com`
+sends a host with no tenant label, and **every lookup returns `unknown` and every login fails
+closed while the UI looks entirely correct**.
+
+In development that means `http://acme.localhost:5173` → `http://acme.localhost:8083`. Derive
+it rather than hardcoding it:
+
+```tsx
+const apiBaseUrl = `${window.location.protocol}//${window.location.hostname}:8083`;
+```
+
+Every component between the browser and auth-service must also forward the original `Host`
+unmodified. A proxy that rewrites it to an upstream service name makes every address resolve
+to `unknown` — the system fails closed, correctly but universally.
+
+Nothing tenant-related is ever sent by this package. There is no `tenantId` prop, no
+`X-Tenant-ID` header, and no per-call override: the server derives the tenant from the address
+on login and from the JWT `tenantId` claim on every other call.
+
+### `useTenant()`
+
+The provider performs exactly one `GET /api/v1/tenant` on mount and publishes the result:
+
+```tsx
+const { status, displayName, error } = useTenant();
+```
+
+| `status` | Meaning | What `LoginForm` renders |
+|---|---|---|
+| `resolving` | The mount-time lookup is in flight | A neutral loading state — never the form, never an error |
+| `recognized` | An active organization lives at this address | The form, headed with `displayName` |
+| `inactive` | The organization exists here but is suspended | Its own message — no form |
+| `unknown` | This address maps to no organization | "This address isn't recognized" — no form |
+| `error` | The lookup itself failed (network, 5xx, 429) | A retryable-problem message — **never** the `unknown` copy |
+
+The three failure states render **no form at all**, not a disabled button: a form that can be
+filled in is a submission path, and a submission from an address that resolves to nothing is
+exactly what must not be possible. `error` is deliberately not folded into `unknown` — telling
+someone their address is wrong because the API blinked sends them to fix something that is not
+broken.
+
+`displayName` is populated only on `recognized`, and the response has no field that could carry
+a tenant id, in any state.
 
 ## Backend prerequisites
 
@@ -72,7 +113,18 @@ Both services must allow your app's origin:
 ```yaml
 hydra:
   cors:
-    allowed-origins: http://localhost:5173
+    # PATTERNS, not literal origins - every tenant is its own origin, so a fixed list would
+    # need an entry per tenant. A pattern is not "*": Spring echoes back the one matched
+    # origin, which is what keeps allowCredentials(true) legal.
+    allowed-origin-patterns: http://*.localhost:5173
+```
+
+auth-service additionally needs the base domain its addresses sit under, or nothing resolves:
+
+```yaml
+hydra:
+  tenant:
+    base-domains: localhost
 ```
 
 `allowCredentials(true)` and `Access-Control-Expose-Headers: Retry-After` are already
@@ -145,7 +197,20 @@ npm install
 npm run test        # Vitest + React Testing Library + MSW
 npm run storybook   # component workbench, pointed at locally running services
 npm run build       # library build (ESM + type declarations)
+npm run contrast    # WCAG AA check over the design tokens, both themes
 ```
+
+> **Node is not on the default `PATH` on this machine.** It is a JetBrains-managed install;
+> export it before running any of the above:
+>
+> ```bash
+> export PATH="$HOME/Library/Application Support/JetBrains/IntelliJIdea2026.2/node/versions/24.19.0/bin:$PATH"
+> ```
+
+`npm run contrast` parses the tokens straight out of `src/styles/index.css`, converts the
+authored `oklch()` values to linear sRGB, and fails the run if any text or control pair drops
+below WCAG AA in either theme. It has no dependencies — this package adds none at runtime, and
+the conversion is short enough not to warrant one.
 
 Storybook stories deliberately talk to real local services rather than mocks — watching
 the cookie and the refresh call in a browser's network tab is the point. See

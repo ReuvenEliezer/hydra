@@ -124,7 +124,7 @@ public class RefreshTokenService {
     }
 
     /** Issues a brand-new token family - call this once, at login. */
-    public String issue(UUID userId, UUID tenantId, List<Role> roles) {
+    public String issue(UUID userId, UUID tenantId, String username, List<Role> roles) {
         String familyId = UUID.randomUUID().toString();
         String rawToken = generateRawToken();
         String hash = Sha256.hash(rawToken);
@@ -137,7 +137,8 @@ public class RefreshTokenService {
                 familyId,
                 rolesToCsv(roles),
                 hash,
-                Long.toString(refreshTtlMillis));
+                Long.toString(refreshTtlMillis),
+                username);
 
         log.info("Issued new refresh token family {} for user {}", familyId, userId);
         return rawToken;
@@ -194,9 +195,10 @@ public class RefreshTokenService {
 
         return switch (outcome) {
             case "ROTATED", "REPLAY" -> new RotationResult(
-                    parts[4],
+                    parts[5],
                     UUID.fromString(parts[1]),
                     UUID.fromString(parts[2]),
+                    parts[4],
                     csvToRoles(parts[3]));
             case "REUSE" -> {
                 String familyId = parts[1];

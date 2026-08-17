@@ -12,14 +12,14 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
-    // שליפה לפי שם משתמש וטננט (לצורך לוגיקה עסקית ולוגין)
-    // ה-tenantId כאן הוא ה-UUID של הטננט (כפי שהגדרנו בישות Tenant)
+    // Lookup by username and tenant (for business logic and login)
+    // tenantId here is the tenant's UUID (as defined in the Tenant entity)
     Optional<User> findByTenantIdAndUsername(UUID tenantId, String username);
 
     @EntityGraph(attributePaths = {"roles"})
     Optional<User> findWithRolesByTenantIdAndUsername(UUID tenantId, String username);
 
-    // בדיקת קיום משתמש (למניעת שכפול בזמן הרשמה)
+    // Check whether a user exists (to prevent duplicates during registration)
     boolean existsByTenantIdAndUsername(UUID tenantId, String username);
 
     @EntityGraph(attributePaths = {"roles"})

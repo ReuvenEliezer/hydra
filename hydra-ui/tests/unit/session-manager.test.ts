@@ -2,7 +2,7 @@ import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionManager } from "../../src/lib/session-manager";
 import { API_BASE_URL } from "../mocks/handlers";
-import { makeAccessToken, TEST_TENANT_ID, TEST_USER_ID } from "../mocks/jwt";
+import { makeAccessToken, TEST_TENANT_ID, TEST_USER_ID, TEST_USERNAME } from "../mocks/jwt";
 import { server } from "../mocks/server";
 
 /**
@@ -85,6 +85,7 @@ describe("session-manager refresh coalescing", () => {
     expect(manager.getState().user).toEqual({
       id: TEST_USER_ID,
       tenantId: TEST_TENANT_ID,
+      username: TEST_USERNAME,
       roles: ["ROLE_ADMIN"],
     });
   });

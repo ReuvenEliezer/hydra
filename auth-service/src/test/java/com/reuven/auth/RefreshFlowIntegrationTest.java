@@ -3,12 +3,12 @@ package com.reuven.auth;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.Headers;
 import com.reuven.Role;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +32,7 @@ class RefreshFlowIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void seedTenantAndUser() {
-        testTenant = new Tenant("Acme Corp", EntityStatus.ACTIVE);
+        testTenant = new Tenant("Acme Corp", "acme", EntityStatus.ACTIVE);
         tenantRepository.save(testTenant);
         User testUser = new User(testTenant, "refresh-test-user",
                 passwordEncoder.encode(USER_PASSWORD), Role.USER, EntityStatus.ACTIVE);
@@ -41,7 +41,7 @@ class RefreshFlowIntegrationTest extends BaseIntegrationTest {
 
     private Cookie loginAndGetRefreshCookie() throws Exception {
         MvcResult result = mockMvc.perform(post(LOGIN_URL)
-                        .header(Headers.TENANT_ID, testTenant.getId().toString())
+                        .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                         .contentType("application/json")
                         .content("""
                                 {"username":"refresh-test-user","password":"%s"}""".formatted(USER_PASSWORD)))

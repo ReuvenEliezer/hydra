@@ -39,9 +39,8 @@ class JwksSecurityIntegrationTest extends BaseIntegrationTest {
         super.setUp();
         // BaseIntegrationTest.setUp() already ran and gave us a clean DB plus
         // superAdmin/testTenant - we just add one more user specific to this test class.
-        Tenant tenant = new Tenant();
-        tenant.setName("JWKS Test Tenant");
-        tenant.setStatus(EntityStatus.ACTIVE);
+        // A distinct identifier from BaseIntegrationTest's fixtures - url_identifier is unique.
+        Tenant tenant = new Tenant("JWKS Test Tenant", "jwks", EntityStatus.ACTIVE);
         tenant = tenantRepository.save(tenant);
 
         user = new User();

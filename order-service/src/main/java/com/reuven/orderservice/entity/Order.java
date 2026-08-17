@@ -29,7 +29,7 @@ public class Order {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    // עמודת הטננט - קריטית לבידוד נתונים
+    // Tenant column - critical for data isolation
     @Column(name = "tenant_id", nullable = false, updatable = false)
     private UUID tenantId;
 
@@ -43,11 +43,11 @@ public class Order {
     @Column(name = "status", nullable = false)
     private OrderStatus status;
 
-    // עמודת משתמש שביצע את הפעולה
+    // Column for the user who performed the action
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;
 
-    // נעילה אופטימית למניעת עדכונים בו-זמנית
+    // Optimistic locking to prevent concurrent updates
     @Version
     private Long version;
 
@@ -63,17 +63,17 @@ public class Order {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Order other)) return false;
-        // משווים לפי ה-ID - עובד מצוין אם ה-ID לא משתנה
+        // Compare by ID - works great as long as the ID doesn't change
         return id != null && id.equals(other.getId());
     }
 
     @Override
     public int hashCode() {
-        // מחזירים קבוע כדי להבטיח עקביות ב-Collections
+        // Return a constant to ensure consistency in Collections
         return getClass().hashCode();
     }
 
-//    // מתודה עזר ליצירת ID חדש אם לא סופק
+//    // Helper method to generate a new ID if none was provided
 //    @PrePersist
 //    protected void onCreate() {
 //        if (this.id == null) {

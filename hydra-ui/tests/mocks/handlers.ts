@@ -109,11 +109,46 @@ export function errorShapeD() {
   return HttpResponse.json({ message: "invalid_refresh_token" }, { status: 401 });
 }
 
+/** The default: this address belongs to an active organization. */
+export const TENANT_DISPLAY_NAME = "Acme Corp";
+
+/**
+ * Overrides for the tenant lookup. Note there is no `resolving` variant — that state is
+ * the gap before any response arrives, which tests produce by delaying, not by mocking a
+ * body — and no variant carries a tenant id, because the real response has no field for one.
+ */
+export function tenantRecognized(displayName = TENANT_DISPLAY_NAME) {
+  return http.get(`${API_BASE_URL}/api/v1/tenant`, () =>
+    HttpResponse.json({ status: "recognized", displayName }),
+  );
+}
+
+/** `displayName` is absent, not null — the server omits it outside `recognized`. */
+export function tenantUnknown() {
+  return http.get(`${API_BASE_URL}/api/v1/tenant`, () =>
+    HttpResponse.json({ status: "unknown" }),
+  );
+}
+
+export function tenantInactive() {
+  return http.get(`${API_BASE_URL}/api/v1/tenant`, () =>
+    HttpResponse.json({ status: "inactive" }),
+  );
+}
+
+/** The lookup ITSELF failing — a distinct state from `unknown`, never rendered as one. */
+export function tenantLookupFails() {
+  return http.get(`${API_BASE_URL}/api/v1/tenant`, () =>
+    errorShapeA(503, "Service Unavailable", "Service unavailable", "/api/v1/tenant"),
+  );
+}
+
 export const handlers = [
+  http.get(`${API_BASE_URL}/api/v1/tenant`, () =>
+    HttpResponse.json({ status: "recognized", displayName: TENANT_DISPLAY_NAME }),
+  ),
+
   http.post(`${API_BASE_URL}/api/v1/auth/login`, async ({ request }) => {
-    if (request.headers.get("X-Tenant-ID") === null) {
-      return errorShapeA(400, "Bad Request", "Missing header: X-Tenant-ID", "/api/v1/auth/login");
-    }
     const body = (await request.json()) as { username?: string; password?: string };
     if (body.username !== VALID_USERNAME || body.password !== VALID_PASSWORD) {
       return errorShapeA(401, "Unauthorized", "Invalid credentials", "/api/v1/auth/login");

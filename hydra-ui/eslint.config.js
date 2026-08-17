@@ -52,4 +52,13 @@ export default tseslint.config(
       "react-refresh/only-export-components": "off",
     },
   },
+  {
+    // Build-time tooling: runs under Node, never shipped to a browser.
+    files: ["scripts/**/*.{mjs,js}"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+  },
 );

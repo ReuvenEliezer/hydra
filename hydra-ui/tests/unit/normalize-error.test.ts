@@ -99,6 +99,38 @@ describe("normalizeError", () => {
     expect(error.message).toBe("Cannot cancel a delivered order");
   });
 
+  it("maps the two tenant codes out of `message`, beating the status-derived fallback", () => {
+    // Both arrive in shape A's `message`. Without an explicit mapping the 400 would read as
+    // a validation error and the 403 as a permission denial - neither of which tells the
+    // user the one thing that matters: the problem is the address, not their input.
+    const unknownAddress = normalizeError(responseLike(400), {
+      message: "unknown_tenant_address",
+      path: "/api/v1/auth/login",
+    });
+    expect(unknownAddress.code).toBe("unknown_tenant_address");
+    expect(unknownAddress.message).not.toBe("unknown_tenant_address");
+    expect(unknownAddress.message.toLowerCase()).not.toContain("username or password");
+
+    const inactive = normalizeError(responseLike(403), {
+      message: "tenant_inactive",
+      path: "/api/v1/auth/login",
+    });
+    expect(inactive.code).toBe("tenant_inactive");
+    expect(inactive.message).not.toBe("tenant_inactive");
+  });
+
+  it("gives the two tenant failures different copy from each other and from bad credentials", () => {
+    const messages = new Set(
+      [
+        normalizeError(responseLike(400), { message: "unknown_tenant_address" }),
+        normalizeError(responseLike(403), { message: "tenant_inactive" }),
+        normalizeError(responseLike(401), { message: "Invalid credentials" }),
+      ].map((error) => error.message),
+    );
+
+    expect(messages.size).toBe(3);
+  });
+
   it("survives an empty or non-object body", () => {
     expect(normalizeError(responseLike(500), null).code).toBe("server_error");
     expect(normalizeError(responseLike(404), "<html>Not Found</html>").code).toBe("not_found");

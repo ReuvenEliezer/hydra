@@ -36,7 +36,7 @@ export function Select<T extends string = string>({
     <div className="flex flex-col gap-1.5">
       <span
         id={labelId}
-        className={cn("text-content text-sm font-medium", hideLabel && "sr-only")}
+        className={cn("text-content text-sm font-semibold", hideLabel && "sr-only")}
       >
         {label}
       </span>
@@ -48,37 +48,50 @@ export function Select<T extends string = string>({
         <RadixSelect.Trigger
           aria-labelledby={labelId}
           className={cn(
-            "bg-surface text-content border-border-subtle inline-flex h-10 items-center justify-between gap-2",
-            "rounded-(--radius-control) border px-3 text-sm",
-            "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-brand",
-            "disabled:cursor-not-allowed disabled:opacity-50",
+            // Matched to Input so a form reads as one control family.
+            "bg-surface-muted text-content border-border-strong inline-flex h-11 items-center",
+            "justify-between gap-2 rounded-(--radius-control) border px-3.5 text-sm",
+            "shadow-[inset_0_1px_2px_oklch(0%_0_0/0.05)]",
+            "transition-[background-color,border-color] hover:border-brand/50",
+            "focus-visible:bg-surface focus-visible:border-brand focus-visible:outline-2",
+            "focus-visible:outline-offset-0 focus-visible:outline-brand",
+            "disabled:cursor-not-allowed disabled:opacity-60",
             className,
           )}
         >
           <RadixSelect.Value placeholder={placeholder} />
           <RadixSelect.Icon>
-            <ChevronDown aria-hidden="true" className="size-4" />
+            <ChevronDown aria-hidden="true" className="text-content-muted size-4" />
           </RadixSelect.Icon>
         </RadixSelect.Trigger>
         <RadixSelect.Portal>
           <RadixSelect.Content
             position="popper"
-            sideOffset={4}
-            className="bg-surface border-border-subtle z-50 overflow-hidden rounded-(--radius-control) border shadow-lg"
+            sideOffset={6}
+            className={cn(
+              // The raised surface is what makes the popover read as above the page in
+              // dark mode, where the shadow alone would be invisible.
+              "bg-surface-raised border-border-subtle shadow-overlay z-50 overflow-hidden",
+              "rounded-(--radius-control) border",
+              "motion-safe:data-[state=open]:animate-pop-in",
+            )}
           >
-            <RadixSelect.Viewport className="p-1">
+            <RadixSelect.Viewport className="p-1.5">
               {options.map((option) => (
                 <RadixSelect.Item
                   key={option.value}
                   value={option.value}
                   className={cn(
-                    "text-content flex cursor-default items-center gap-2 rounded px-2 py-1.5 text-sm",
-                    "data-[highlighted]:bg-surface-muted data-[highlighted]:outline-none",
+                    "text-content flex cursor-default items-center gap-2 rounded-md px-2.5 py-2",
+                    "text-sm transition-colors outline-none",
+                    "data-[highlighted]:bg-brand-wash data-[highlighted]:text-brand",
                   )}
                 >
-                  <RadixSelect.ItemIndicator>
-                    <Check aria-hidden="true" className="size-4" />
-                  </RadixSelect.ItemIndicator>
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    <RadixSelect.ItemIndicator>
+                      <Check aria-hidden="true" className="size-4" />
+                    </RadixSelect.ItemIndicator>
+                  </span>
                   <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
                 </RadixSelect.Item>
               ))}

@@ -20,7 +20,7 @@ spring:
 # alongside allowCredentials(true). Comma-separated.
 hydra:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://*.localhost:5173}
     max-age: ${CORS_MAX_AGE:PT30M}
 management:
   endpoints:

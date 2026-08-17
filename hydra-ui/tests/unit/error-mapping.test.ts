@@ -160,4 +160,14 @@ describe("error mapping across hooks", () => {
       normalizeError({ status: 401, headers }, { message: "refresh_token_reuse_detected" }).code,
     ).toBe("refresh_token_reuse_detected");
   });
+
+  it("gives the two tenant-address failures distinct codes, never invalid_credentials", async () => {
+    const { normalizeError } = await import("../../src/lib/normalize-error");
+    const headers = { get: () => null };
+
+    expect(normalizeError({ status: 400, headers }, { message: "unknown_tenant_address" }).code)
+      .toBe("unknown_tenant_address");
+    expect(normalizeError({ status: 403, headers }, { message: "tenant_inactive" }).code)
+      .toBe("tenant_inactive");
+  });
 });

@@ -1,7 +1,7 @@
 import { isRole, type Role } from "../types/session";
 
 /**
- * Reads `sub`, `tenantId` and `roles` out of the access token's payload.
+ * Reads `sub`, `tenantId`, `username` and `roles` out of the access token's payload.
  *
  * This is necessary because the login response body is `{userId, token}` and carries no
  * roles at all — the roles only exist inside the JWT.
@@ -14,6 +14,7 @@ import { isRole, type Role } from "../types/session";
 export interface AccessTokenClaims {
   userId: string;
   tenantId: string;
+  username: string;
   roles: Role[];
 }
 
@@ -43,10 +44,13 @@ export function decodeAccessTokenClaims(token: string): AccessTokenClaims | null
 
   const userId = claims["sub"];
   const tenantId = claims["tenantId"];
-  if (typeof userId !== "string" || typeof tenantId !== "string") return null;
+  const username = claims["username"];
+  if (typeof userId !== "string" || typeof tenantId !== "string" || typeof username !== "string") {
+    return null;
+  }
 
   const rawRoles = claims["roles"];
   const roles = Array.isArray(rawRoles) ? rawRoles.filter(isRole) : [];
 
-  return { userId, tenantId, roles };
+  return { userId, tenantId, username, roles };
 }

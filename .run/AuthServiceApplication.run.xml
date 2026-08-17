@@ -3,7 +3,7 @@
     <option name="ACTIVE_PROFILES" value="local" />
     <envs>
       <env name="JWT_PRIVATE_KEY_PATH" value="$PROJECT_DIR$/keys/jwt-private-key-local.pem" />
-      <env name="APP_BOOTSTRAP_SUPER_ADMIN_PASSWORD" value="admin12345" />
+      <env name="APP_BOOTSTRAP_SUPER_ADMIN_PASSWORD" value="Admin@12345" />
     </envs>
     <module name="auth-service" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="com.reuven.auth.AuthServiceApplication" />

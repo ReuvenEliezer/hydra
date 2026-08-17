@@ -9,6 +9,11 @@ function systemPrefersDark(): boolean {
 }
 
 function readInitialTheme(): Theme {
+  // FR-006 bans persisting TOKENS. This is a display preference under `hydra-demo-theme`, and
+  // losing it on reload is the only thing at stake. The ban stays in force everywhere else in
+  // demo/, including App.tsx where the session actually lives - hence a line-scoped exemption
+  // rather than a demo/ entry in eslint.config.js.
+  // eslint-disable-next-line no-restricted-globals
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
   return systemPrefersDark() ? "dark" : "light";
@@ -25,6 +30,8 @@ export function useTheme(): { theme: Theme; toggle: () => void } {
 
   useEffect(() => {
     document.documentElement.dataset["theme"] = theme;
+    // Display preference, not a token - see readInitialTheme above.
+    // eslint-disable-next-line no-restricted-globals
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 

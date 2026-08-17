@@ -4,22 +4,19 @@ import { HydraProvider } from "../src/components/HydraProvider";
 import { useSession } from "../src/hooks/useSession";
 import type { Role } from "../src/types/session";
 import { API_BASE_URL, ORDERS_BASE_URL, errorShapeD } from "./mocks/handlers";
-import { makeAccessToken, TEST_TENANT_ID, TEST_USER_ID } from "./mocks/jwt";
+import { makeAccessToken, TEST_USER_ID } from "./mocks/jwt";
 import { server } from "./mocks/server";
 
 /**
- * Every test renders through a real `HydraProvider`, which means every test also runs
- * the mount-time `restoreSession()` against MSW. That is deliberate: the restore is not
- * an optional extra, it is how a session exists at all after a reload, and a harness
- * that stubbed it out would be exercising a configuration that never ships.
+ * Every test renders through a real `HydraProvider`, which means every test also runs the
+ * mount-time `restoreSession()` AND the mount-time tenant lookup against MSW. That is
+ * deliberate: neither is an optional extra — one is how a session exists at all after a
+ * reload, the other is how the page knows which organization it belongs to — and a harness
+ * that stubbed them out would be exercising a configuration that never ships.
  */
 export function wrapper({ children }: { children: ReactNode }) {
   return (
-    <HydraProvider
-      apiBaseUrl={API_BASE_URL}
-      ordersBaseUrl={ORDERS_BASE_URL}
-      tenantId={TEST_TENANT_ID}
-    >
+    <HydraProvider apiBaseUrl={API_BASE_URL} ordersBaseUrl={ORDERS_BASE_URL}>
       {children}
     </HydraProvider>
   );

@@ -14,6 +14,7 @@ public final class JwtClaimNames {
 
     public static final String TENANT_ID = "tenantId";
     public static final String ROLES = "roles";
+    public static final String USERNAME = "username";
 
     private JwtClaimNames() {}
 }

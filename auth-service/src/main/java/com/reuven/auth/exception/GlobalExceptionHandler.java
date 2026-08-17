@@ -68,6 +68,27 @@ public class GlobalExceptionHandler {
         return errorResponse(HttpStatus.UNAUTHORIZED, AuthErrorCodes.INVALID_REFRESH_TOKEN, request);
     }
 
+    /**
+     * 400 mirrors the status the removed {@code X-Tenant-ID} path produced
+     * ({@code MissingRequestHeaderException} -> 400), keeping "this request cannot name a tenant"
+     * in the class it was already in. 404 was rejected: it collides with
+     * {@link ResourceNotFoundException}'s meaning here and reads as "no such endpoint" to a
+     * client debugging a login.
+     */
+    @ExceptionHandler(UnknownTenantAddressException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleUnknownTenantAddress(UnknownTenantAddressException ex, HttpServletRequest request) {
+        log.warn("Unresolvable tenant address at {}: {}", request.getRequestURI(), ex.getMessage());
+        return errorResponse(HttpStatus.BAD_REQUEST, AuthErrorCodes.UNKNOWN_TENANT_ADDRESS, request);
+    }
+
+    @ExceptionHandler(InactiveTenantException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErrorResponse handleInactiveTenant(InactiveTenantException ex, HttpServletRequest request) {
+        log.warn("Login attempted against an inactive tenant at {}: {}", request.getRequestURI(), ex.getMessage());
+        return errorResponse(HttpStatus.FORBIDDEN, AuthErrorCodes.TENANT_INACTIVE, request);
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {

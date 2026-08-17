@@ -5,21 +5,19 @@ import type { SessionManager } from "./session-manager";
  * The one place a network request is made (apart from the session manager's own refresh
  * call, which cannot go through here without a cycle).
  *
- * Two header rules are load-bearing and easy to get wrong in opposite directions:
+ * No request made here names a tenant, and none can: the server derives it from the
+ * address the request was sent to (login) or from the JWT `tenantId` claim (everything
+ * else). There is deliberately no option to add one — the browser having no say in which
+ * tenant a call is attributed to is the property this client exists to preserve.
  *
- *  - `X-Tenant-ID` goes on the LOGIN request ONLY. `AuthController.login` declares
- *    `@RequestHeader(Headers.TENANT_ID)` with no default, so omitting it is a 400
- *    before credentials are even checked. Every other endpoint derives the tenant from
- *    the JWT `tenantId` claim server-side — order-service does not even allow the
- *    header through CORS, so sending it anyway would fail the preflight.
- *  - `Accept: application/json` goes on everything. The security filter chain forwards
- *    to Boot's `/error`, which will happily negotiate an HTML page if we do not say
- *    otherwise, and an HTML body is unparseable noise on the most common error path.
+ * One header rule is load-bearing: `Accept: application/json` goes on everything. The
+ * security filter chain forwards to Boot's `/error`, which will happily negotiate an HTML
+ * page if we do not say otherwise, and an HTML body is unparseable noise on the most
+ * common error path.
  */
 
 export interface HttpClientOptions {
   apiBaseUrl: string;
-  tenantId: string;
   sessionManager: SessionManager;
   fetchImpl?: typeof fetch;
 }
@@ -31,15 +29,6 @@ export interface RequestOptions {
   query?: Record<string, string | number | undefined>;
   /** Attach the bearer token and refresh-and-retry once on 401. Default true. */
   authenticated?: boolean;
-  /** Send `X-Tenant-ID`. Login only. Default false. */
-  sendTenantHeader?: boolean;
-  /**
-   * Overrides the provider-level tenant for this request only. Login collects tenant
-   * per-submission (see `LoginForm`) rather than trusting a single value baked in at
-   * `HydraProvider` mount, so this is normally set on every login call; falls back to
-   * the provider's `tenantId` when omitted.
-   */
-  tenantId?: string;
   signal?: AbortSignal;
 }
 
@@ -71,7 +60,7 @@ async function parseBody<T>(response: Response): Promise<T> {
 }
 
 export function createHttpClient(options: HttpClientOptions): HttpClient {
-  const { apiBaseUrl, tenantId, sessionManager } = options;
+  const { apiBaseUrl, sessionManager } = options;
   const doFetch: typeof fetch = options.fetchImpl ?? ((...args) => globalThis.fetch(...args));
 
   async function send(
@@ -82,9 +71,6 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     const headers: Record<string, string> = { Accept: "application/json" };
 
     if (requestOptions.body !== undefined) headers["Content-Type"] = "application/json";
-    if (requestOptions.sendTenantHeader === true) {
-      headers["X-Tenant-ID"] = requestOptions.tenantId ?? tenantId;
-    }
     if (accessToken !== null) headers["Authorization"] = `Bearer ${accessToken}`;
 
     const init: RequestInit = {

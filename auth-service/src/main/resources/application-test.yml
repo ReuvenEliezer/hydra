@@ -15,3 +15,8 @@ refresh-token:
   grace-ttl: PT2S
   cookie:
     secure: false
+# Integration tests exercise the real matching rule rather than a test-only bypass (FR-008):
+# MockMvc sets Host: <identifier>.localhost and resolution runs exactly as it does locally.
+hydra:
+  tenant:
+    base-domains: localhost

@@ -5,5 +5,5 @@ import java.security.interfaces.RSAPublicKey;
 
 public interface KeyProvider {
     RSAPrivateKey getPrivateKey();
-    RSAPublicKey getPublicKey(); // המימוש הקונקרטי כבר יודע לגזור את זה, פעם אחת
+    RSAPublicKey getPublicKey(); // the concrete implementation already knows how to derive this, once
 }

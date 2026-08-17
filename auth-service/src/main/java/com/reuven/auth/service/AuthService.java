@@ -95,6 +95,16 @@ public class AuthService {
         return new AuthResponse(save.getId(), null, "USER_CREATED");
     }
 
+    /**
+     * Authenticates {@code request} within {@code tenantId}.
+     * <p>
+     * {@code tenantId} is the tenant the controller <em>resolved from the request's own
+     * {@code Host}</em> - it is never supplied by the caller of the HTTP API. That distinction is
+     * the whole point of the feature: the browser has no way to name a tenant, so it has no way to
+     * aim a credential at one. By the time execution reaches here the address is already known to
+     * resolve to an {@code ACTIVE} tenant, so every failure below is genuinely a credential
+     * failure and collapsing them into one message costs the user nothing.
+     */
     public LoginResult login(LoginRequest request, UUID tenantId) {
         // Use a generic message to prevent username enumeration
         User user = userRepository.findWithRolesByTenantIdAndUsername(tenantId, request.username())
@@ -110,7 +120,7 @@ public class AuthService {
 
         String accessToken = jwtProvider.generateToken(user);
         List<Role> roles = List.copyOf(user.getRoles());
-        String rawRefreshToken = refreshTokenService.issue(user.getId(), tenantId, roles);
+        String rawRefreshToken = refreshTokenService.issue(user.getId(), tenantId, user.getUsername(), roles);
 
         log.info("User '{}' logged in for tenant {}", request.username(), tenantId);
         return new LoginResult(new AuthResponse(user.getId(), accessToken), rawRefreshToken);

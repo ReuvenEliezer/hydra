@@ -1,0 +1,48 @@
+# PARITY DOCUMENTATION ONLY - THIS FILE NEVER EXECUTES.
+#
+# Liquibase is not a dependency of auth-service (check auth-service/pom.xml), so nothing in
+# db/changelog/** is applied at startup. The schema below is created by Hibernate's
+# `spring.jpa.hibernate.ddl-auto: update` from the JPA mappings on Tenant and
+# ReservedTenantIdentifier, in every profile.
+#
+# It is written anyway so this tree keeps describing the real schema: whenever Liquibase is
+# adopted (its own decision, deliberately not folded into 003-tenant-url-resolution), the
+# changelog is not starting from a schema it has never seen.
+#
+# No backfill and no nullable interim state: per the feature's Assumptions the database is
+# wiped, so url_identifier is NOT NULL UNIQUE from the first boot.
+databaseChangeLog:
+  - changeSet:
+      id: 20260813-01-tenant-url-identifier
+      author: reuven
+      changes:
+        # The Tenant URL Identifier - the DNS label in front of a configured base domain.
+        # varchar(63) is the RFC 1123 label limit; the unique constraint is what "at most one
+        # tenant per URL" rests on.
+        - addColumn:
+            tableName: tenants
+            columns:
+              - column: {name: url_identifier, type: varchar(63), constraints: {nullable: false}}
+
+        - addUniqueConstraint:
+            tableName: tenants
+            columnNames: url_identifier
+            constraintName: uk_tenants_url_identifier
+
+  - changeSet:
+      id: 20260813-02-reserved-tenant-identifiers
+      author: reuven
+      changes:
+        # The permanent allocation ledger. Insert-only: rows are never updated or deleted, so a
+        # claimed identifier stays claimed after its tenant is deactivated, deleted, or renamed
+        # off it. The identifier is the primary key, which is what resolves a concurrent
+        # double-claim at the database instead of by a check-then-write in application code.
+        #
+        # tenant_id is nullable BY DESIGN and carries NO foreign key: a FK would either block
+        # tenant deletion or cascade the reservation away, and both defeat the point of the table.
+        - createTable:
+            tableName: reserved_tenant_identifiers
+            columns:
+              - column: {name: identifier, type: varchar(63), constraints: {primaryKey: true}}
+              - column: {name: tenant_id, type: uuid, constraints: {nullable: true}}
+              - column: {name: reserved_at, type: timestamp, constraints: {nullable: false}}

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { AlertCircle } from "lucide-react";
 import { useOrders } from "../../hooks/useOrders";
 import { cn } from "../../lib/cn";
 import { ORDER_STATUSES, type Order, type OrderStatus } from "../../types/order";
@@ -32,7 +33,11 @@ export function OrderList({ className, onSelectOrder, rowActions, pageSize = 20 
   const { orders, page, isLoading, error, loadPage } = useOrders(filters);
 
   const columns: TableColumn<Order>[] = [
-    { key: "orderNumber", header: "Order", render: (order) => order.orderNumber },
+    {
+      key: "orderNumber",
+      header: "Order",
+      render: (order) => <span className="font-semibold">{order.orderNumber}</span>,
+    },
     {
       key: "totalAmount",
       header: "Total",
@@ -60,7 +65,7 @@ export function OrderList({ className, onSelectOrder, rowActions, pageSize = 20 
   const isLastPage = page.number >= page.totalPages - 1;
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div className={cn("flex flex-col gap-5", className)}>
       <Select
         label="Filter by status"
         value={statusFilter}
@@ -70,7 +75,11 @@ export function OrderList({ className, onSelectOrder, rowActions, pageSize = 20 
       />
 
       {error !== null && (
-        <p role="alert" className="bg-danger-surface text-danger rounded-(--radius-control) px-3 py-2 text-sm">
+        <p
+          role="alert"
+          className="bg-danger-surface text-danger border-danger/30 flex items-start gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
+        >
+          <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
           {error.message}
         </p>
       )}

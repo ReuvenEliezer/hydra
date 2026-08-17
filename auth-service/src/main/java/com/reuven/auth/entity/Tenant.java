@@ -18,6 +18,18 @@ public class Tenant {
     @Column(nullable = false, length = 100)
     private String name;
 
+    /**
+     * The Tenant URL Identifier - the single DNS label in front of a configured base domain
+     * ({@code acme} in {@code acme.hydra.example.com}). The unique constraint is what "at most
+     * one tenant per address" rests on.
+     * <p>
+     * There is deliberately no setter: renaming an identifier is out of this feature's scope,
+     * and leaving one here would offer a way to free a claimed address without going through
+     * {@code reserved_tenant_identifiers}, which must outlive every such change.
+     */
+    @Column(name = "url_identifier", nullable = false, unique = true, length = 63)
+    private String urlIdentifier;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EntityStatus status;
@@ -28,8 +40,13 @@ public class Tenant {
 
     public Tenant() {}
 
-    public Tenant(String name, EntityStatus status) {
+    /**
+     * The identifier is mandatory from construction, so "a tenant with no address" is
+     * unrepresentable rather than merely rejected downstream (FR-009).
+     */
+    public Tenant(String name, String urlIdentifier, EntityStatus status) {
         this.name = name;
+        this.urlIdentifier = urlIdentifier;
         this.status = status;
     }
 

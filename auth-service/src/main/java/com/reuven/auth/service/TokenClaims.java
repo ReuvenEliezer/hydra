@@ -10,4 +10,4 @@ import java.util.UUID;
  * Keeps nimbus-jose types isolated inside JwtProvider — nothing outside
  * the service package needs to import JWTClaimsSet.
  */
-public record TokenClaims(UUID userId, UUID tenantId, List<Role> roles) {}
+public record TokenClaims(UUID userId, UUID tenantId, String username, List<Role> roles) {}

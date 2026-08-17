@@ -1,6 +1,5 @@
 package com.reuven.auth.config;
 
-import com.reuven.Headers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -20,8 +19,12 @@ import java.util.List;
  * Picked up automatically by {@code http.cors(...)} in {@link SecurityCommons}, so the same
  * policy applies to every filter chain regardless of profile.
  * <p>
- * Two settings here are load-bearing for the front-end and easy to break by "tidying up":
+ * Three settings here are load-bearing for the front-end and easy to break by "tidying up":
  * <ul>
+ *   <li>{@code setAllowedOriginPatterns(...)} rather than {@code setAllowedOrigins(...)} - every
+ *       tenant signs in at its own subdomain and so is its own origin. A literal list would need
+ *       an entry per tenant, turning provisioning into a deployment. See {@link CorsProperties}
+ *       for why a pattern is still compatible with credentials while {@code "*"} is not.</li>
  *   <li>{@code allowCredentials(true)} - without it the browser refuses to attach the
  *       httpOnly refresh cookie to {@code /api/v1/auth/refresh}, so every session silently
  *       dies at access-token expiry instead of rotating.</li>
@@ -41,15 +44,15 @@ public class CorsConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        List<String> allowedOrigins = corsProperties.allowedOrigins();
-        if (allowedOrigins.isEmpty()) {
-            log.warn("hydra.cors.allowed-origins is empty - all cross-origin browser requests will be rejected");
+        List<String> allowedOriginPatterns = corsProperties.allowedOriginPatterns();
+        if (allowedOriginPatterns.isEmpty()) {
+            log.warn("hydra.cors.allowed-origin-patterns is empty - all cross-origin browser requests will be rejected");
         } else {
-            log.info("CORS enabled for origins {} (credentials allowed, Retry-After exposed)", allowedOrigins);
+            log.info("CORS enabled for origin patterns {} (credentials allowed, Retry-After exposed)", allowedOriginPatterns);
         }
 
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);
+        config.setAllowedOriginPatterns(allowedOriginPatterns);
         config.setAllowedMethods(List.of(
                 HttpMethod.GET.name(),
                 HttpMethod.POST.name(),
@@ -57,8 +60,7 @@ public class CorsConfig {
         config.setAllowedHeaders(List.of(
                 HttpHeaders.AUTHORIZATION,
                 HttpHeaders.CONTENT_TYPE,
-                HttpHeaders.ACCEPT,
-                Headers.TENANT_ID));
+                HttpHeaders.ACCEPT));
         config.setExposedHeaders(List.of(HttpHeaders.RETRY_AFTER));
         config.setAllowCredentials(true);
         config.setMaxAge(corsProperties.maxAge());

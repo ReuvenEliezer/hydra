@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { useRegisterAdmin } from "../../hooks/useRegisterAdmin";
 import { cn } from "../../lib/cn";
 import {
@@ -71,9 +72,9 @@ export function RegisterAdminForm({
       <Card
         title="Add a tenant admin"
         description="Creates an administrator for the chosen tenant."
-        className={cn("w-full max-w-sm", className)}
+        className={cn("w-full max-w-md", className)}
       >
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+        <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
           <Input
             label="Tenant ID"
             name="tenantId"
@@ -109,14 +110,19 @@ export function RegisterAdminForm({
             <p
               role="alert"
               data-error-code={error.code}
-              className="bg-danger-surface text-danger rounded-(--radius-control) px-3 py-2 text-sm"
+              className="bg-danger-surface text-danger border-danger/30 flex items-start gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
             >
+              <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
               {error.message}
             </p>
           )}
 
           {createdUsername !== null && (
-            <p role="status" className="text-success text-sm">
+            <p
+              role="status"
+              className="bg-success-surface text-success border-success/30 flex items-center gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
+            >
+              <CheckCircle2 aria-hidden="true" className="size-4 shrink-0" />
               Created admin “{createdUsername}”.
             </p>
           )}

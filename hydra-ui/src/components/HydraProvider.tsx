@@ -1,27 +1,41 @@
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createHttpClient, type HttpClient } from "../lib/http-client";
 import { createSessionManager, type SessionManager } from "../lib/session-manager";
+import { fetchTenantResolution } from "../lib/tenant-resolution";
+import type { TenantState } from "../hooks/useTenant";
+import { ApiError } from "../types/errors";
 
 export interface HydraContextValue {
   sessionManager: SessionManager;
   httpClient: HttpClient;
   ordersBaseUrl: string;
-  /** Provider-level default; `LoginForm` prefills its editable field from this. */
-  tenantId: string;
+  /** The load-time tenant resolution. Read it through `useTenant()`. */
+  tenant: TenantState;
 }
 
 const HydraContext = createContext<HydraContextValue | null>(null);
 
+const RESOLVING: TenantState = { status: "resolving", displayName: null, error: null };
+
 export interface HydraProviderProps {
-  /** auth-service origin, e.g. "https://auth.hydra.example.com". No default by design. */
-  apiBaseUrl: string;
   /**
-   * REQUIRED. Sent as `X-Tenant-ID` on the login request only.
-   * `AuthController.login` declares the header with no default, so a missing one is
-   * rejected with 400 before the credentials are even looked at. How the app *obtains*
-   * the tenant is its own concern; supplying it is not optional.
+   * auth-service origin, e.g. "https://acme.hydra.example.com".
+   *
+   * MUST point at the same tenant host the page is served from. The tenant is resolved from
+   * the `Host` of the API request, not of the page, so a page on `acme.localhost:5173` must
+   * call `http://acme.localhost:8083` — calling `http://localhost:8083` sends a host with no
+   * tenant label, and every lookup returns `unknown` while every login fails closed. Behind a
+   * path-routing edge this is simply the page's own origin. No default by design.
    */
-  tenantId: string;
+  apiBaseUrl: string;
   /** order-service origin. Defaults to `apiBaseUrl` for single-origin gateway setups. */
   ordersBaseUrl?: string;
   children: ReactNode;
@@ -34,34 +48,75 @@ export interface HydraProviderProps {
  * leaks one test's session into the next and makes two providers on one page fight over
  * the same access token.
  *
- * On mount it performs exactly ONE silent `restoreSession()`. That call is the entire
- * mechanism by which a page reload keeps the user signed in (FR-003) — the access token
- * is deliberately never persisted (FR-006), so there is nothing to read back except the
- * httpOnly refresh cookie. Session status stays `authenticating` until it settles, so
- * consumers never flash a signed-out UI on the way to a restored session (SC-001).
+ * On mount it performs exactly TWO one-shot calls, in parallel:
+ *
+ *  - a silent `restoreSession()` — the entire mechanism by which a page reload keeps the
+ *    user signed in (FR-003), since the access token is deliberately never persisted
+ *    (FR-006) and there is nothing to read back except the httpOnly refresh cookie;
+ *  - one tenant resolution — which organization this address belongs to. It lives here
+ *    rather than in `LoginForm` because it is the only placement where two components
+ *    cannot each fire their own call or disagree about the answer.
  */
-export function HydraProvider({
-  apiBaseUrl,
-  tenantId,
-  ordersBaseUrl,
-  children,
-}: HydraProviderProps) {
-  const value = useMemo<HydraContextValue>(() => {
+export function HydraProvider({ apiBaseUrl, ordersBaseUrl, children }: HydraProviderProps) {
+  const [tenant, setTenant] = useState<TenantState>(RESOLVING);
+
+  const clients = useMemo(() => {
     const sessionManager = createSessionManager({ apiBaseUrl });
-    const httpClient = createHttpClient({ apiBaseUrl, tenantId, sessionManager });
-    return { sessionManager, httpClient, ordersBaseUrl: ordersBaseUrl ?? apiBaseUrl, tenantId };
-  }, [apiBaseUrl, tenantId, ordersBaseUrl]);
+    const httpClient = createHttpClient({ apiBaseUrl, sessionManager });
+    return { sessionManager, httpClient, ordersBaseUrl: ordersBaseUrl ?? apiBaseUrl };
+  }, [apiBaseUrl, ordersBaseUrl]);
+
+  const value = useMemo<HydraContextValue>(() => ({ ...clients, tenant }), [clients, tenant]);
 
   // Guards against React 18+ StrictMode's deliberate double-invocation of effects in
-  // development, which would otherwise fire two refresh calls at mount — visible in the
-  // network tab and, against the per-token rate limit, occasionally a real 429.
-  const restoredFor = useRef<HydraContextValue | null>(null);
+  // development, which would otherwise fire two calls at mount — visible in the network tab
+  // and, against the per-IP rate limits, occasionally a real 429. Keyed on `clients` rather
+  // than `value`, which changes on every resolution update and would re-run the effect.
+  const startedFor = useRef<typeof clients | null>(null);
 
   useEffect(() => {
-    if (restoredFor.current === value) return;
-    restoredFor.current = value;
-    void value.sessionManager.restoreSession();
-  }, [value]);
+    if (startedFor.current === clients) return;
+    startedFor.current = clients;
+
+    void clients.sessionManager.restoreSession();
+
+    // Deliberately NOT cancelled on cleanup, and the two lines above are why.
+    //
+    // Aborting here combines with the `startedFor` guard to cancel the only request that
+    // guard ever allows: StrictMode runs the effect, cleans it up (aborting the in-flight
+    // lookup), then runs it again — and the second run returns early, so nothing replaces
+    // what was just aborted. `tenant` then sits on `resolving` forever and the sign-in page
+    // renders its loading state permanently, with a single ERR_ABORTED in the network tab as
+    // the only clue. Resetting the guard in cleanup instead would fix the hang but reinstate
+    // the double call this effect exists to prevent.
+    //
+    // The cost of not cancelling is a `setTenant` on an unmounted provider if it unmounts
+    // mid-flight — a no-op in React 18+, and one lookup is what the guard promises anyway.
+    void (async () => {
+      try {
+        const resolution = await fetchTenantResolution(apiBaseUrl);
+        setTenant({
+          status: resolution.status,
+          displayName: resolution.displayName,
+          error: null,
+        });
+      } catch (caught) {
+        setTenant({
+          status: "error",
+          displayName: null,
+          error:
+            caught instanceof ApiError
+              ? caught
+              : new ApiError({
+                  code: "network_error",
+                  message: "We couldn't reach the server. Check your connection and try again.",
+                  status: 0,
+                  cause: caught,
+                }),
+        });
+      }
+    })();
+  }, [clients, apiBaseUrl]);
 
   return <HydraContext.Provider value={value}>{children}</HydraContext.Provider>;
 }
@@ -78,14 +133,7 @@ export function useHydraContext(): HydraContextValue {
 export function useOrdersClient(): HttpClient {
   const { ordersBaseUrl, sessionManager } = useHydraContext();
   return useMemo(
-    () =>
-      createHttpClient({
-        apiBaseUrl: ordersBaseUrl,
-        // order-service never reads X-Tenant-ID (it derives the tenant from the JWT) and
-        // does not allow the header through CORS, so nothing here ever sends it.
-        tenantId: "",
-        sessionManager,
-      }),
+    () => createHttpClient({ apiBaseUrl: ordersBaseUrl, sessionManager }),
     [ordersBaseUrl, sessionManager],
   );
 }

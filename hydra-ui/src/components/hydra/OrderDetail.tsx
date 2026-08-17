@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useOrder } from "../../hooks/useOrder";
 import { cn } from "../../lib/cn";
 import { Card } from "../ui/Card";
@@ -13,9 +14,11 @@ export interface OrderDetailProps {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-content-muted text-xs uppercase tracking-wide">{label}</dt>
-      <dd className="text-content text-sm">{children}</dd>
+    <div className="flex flex-col gap-1">
+      <dt className="text-content-muted text-xs font-semibold tracking-wide uppercase">
+        {label}
+      </dt>
+      <dd className="text-content text-sm font-medium">{children}</dd>
     </div>
   );
 }
@@ -26,15 +29,23 @@ export function OrderDetail({ orderId, className, actions }: OrderDetailProps) {
   if (isLoading) {
     return (
       <Card className={className}>
-        <p className="text-content-muted text-sm">Loading order…</p>
+        <p className="text-content-muted flex items-center gap-2 text-sm">
+          <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+          Loading order…
+        </p>
       </Card>
     );
   }
 
   if (error !== null) {
     return (
-      <Card className={className}>
-        <p role="alert" className="text-danger text-sm" data-error-code={error.code}>
+      <Card className={cn("border-danger/30", className)}>
+        <p
+          role="alert"
+          className="text-danger flex items-start gap-2 text-sm font-medium"
+          data-error-code={error.code}
+        >
+          <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
           {/* A tenant-scoped lookup means someone else's order reads as "not found"
               rather than "forbidden", which is exactly what the user should see. */}
           {error.code === "not_found" ? "That order doesn't exist." : error.message}

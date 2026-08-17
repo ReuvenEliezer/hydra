@@ -12,5 +12,13 @@ export default defineConfig({
   root: resolve(__dirname, "demo"),
   envDir: __dirname,
   plugins: [react(), tailwindcss()],
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Bind on all interfaces and allow any *.localhost host. Vite 6 rejects requests whose
+    // Host is not in its allow-list (a DNS-rebinding protection), so without this
+    // acme.localhost:5173 is refused before any of this feature's code runs — and the
+    // subdomain IS the tenant, so every meaningful dev address is a subdomain.
+    host: true,
+    allowedHosts: [".localhost"],
+  },
 });

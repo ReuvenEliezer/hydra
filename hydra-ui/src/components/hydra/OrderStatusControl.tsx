@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { useUpdateOrderStatus } from "../../hooks/useUpdateOrderStatus";
 import { cn } from "../../lib/cn";
 import { allowedTransitions } from "../../lib/order-transitions";
@@ -45,9 +46,9 @@ export function OrderStatusControl({ order, className, onUpdated }: OrderStatusC
 
   return (
     <RequireRole role="ROLE_ADMIN">
-      <div className={cn("flex flex-col gap-2", className)}>
+      <div className={cn("flex flex-col gap-3", className)}>
         {transitions.length === 0 ? (
-          <p className="text-content-muted text-sm">
+          <p className="text-content-muted bg-surface-muted rounded-(--radius-control) px-3.5 py-2.5 text-sm">
             {ORDER_STATUS_LABELS[order.status]} orders can't change status.
           </p>
         ) : (
@@ -59,7 +60,7 @@ export function OrderStatusControl({ order, className, onUpdated }: OrderStatusC
               options={options}
               placeholder="Choose a status…"
               disabled={isPending}
-              className="w-44"
+              className="w-48"
             />
             <Button
               size="sm"
@@ -73,7 +74,12 @@ export function OrderStatusControl({ order, className, onUpdated }: OrderStatusC
         )}
 
         {error !== null && (
-          <p role="alert" data-error-code={error.code} className="text-danger text-sm">
+          <p
+            role="alert"
+            data-error-code={error.code}
+            className="text-danger flex items-start gap-2 text-sm font-medium"
+          >
+            <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
             {error.message}
           </p>
         )}

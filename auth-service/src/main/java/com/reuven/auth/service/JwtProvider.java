@@ -87,15 +87,15 @@ public class JwtProvider {
 
     public String generateToken(com.reuven.auth.entity.User user) {
         List<Role> roles = List.copyOf(user.getRoles());
-        return generateToken(user.getId(), user.getTenant().getId(), roles);
+        return generateToken(user.getId(), user.getTenant().getId(), user.getUsername(), roles);
     }
 
     /**
      * Mints an access token directly from claims — no DB round-trip.
-     * Used by the refresh flow, where userId/tenantId/roles come from the Redis-backed
-     * refresh token's status-tagged slot.
+     * Used by the refresh flow, where userId/tenantId/username/roles come from the
+     * Redis-backed refresh token's status-tagged slot.
      */
-    public String generateToken(UUID userId, UUID tenantId, List<Role> roles) {
+    public String generateToken(UUID userId, UUID tenantId, String username, List<Role> roles) {
         Instant nowInstant = clock.instant();
         Date now = Date.from(nowInstant);
         Date exp = Date.from(nowInstant.plus(tokenValidityDuration));
@@ -104,6 +104,7 @@ public class JwtProvider {
                 .subject(userId.toString())
                 .claim(JwtClaimNames.ROLES, roles.stream().map(Role::authority).toList())
                 .claim(JwtClaimNames.TENANT_ID, tenantId.toString())
+                .claim(JwtClaimNames.USERNAME, username)
                 .issuer(issuer)
                 .issueTime(now)
                 .expirationTime(exp)
@@ -135,11 +136,12 @@ public class JwtProvider {
         try {
             UUID userId   = UUID.fromString(raw.getSubject());
             UUID tenantId = UUID.fromString(raw.getStringClaim(JwtClaimNames.TENANT_ID));
+            String username = raw.getStringClaim(JwtClaimNames.USERNAME);
             List<String> roleAuthorities = raw.getStringListClaim(JwtClaimNames.ROLES);
             List<Role> roles = roleAuthorities == null
                     ? List.of()
                     : roleAuthorities.stream().map(Role::fromAuthority).toList();
-            return new TokenClaims(userId, tenantId, roles);
+            return new TokenClaims(userId, tenantId, username, roles);
         } catch (ParseException e) {
             throw new InvalidTokenException("Invalid token claims structure", e);
         } catch (IllegalArgumentException e) {

@@ -3,28 +3,90 @@
 /*
  * Tailwind v4 configures itself from CSS — there is deliberately no tailwind.config.js.
  * Tokens below are declared with @theme so they become real Tailwind utilities
- * (bg-surface, text-danger, …) rather than raw custom properties, which is what lets a
- * consuming app restyle a component through className without forking it.
+ * (bg-surface, text-danger, shadow-card, …) rather than raw custom properties, which is
+ * what lets a consuming app restyle a component through className without forking it.
+ *
+ * Token NAMES are a public contract: an app that overrides `--color-brand` or composes
+ * `bg-surface` keeps working across this redesign. Only values changed; new names are
+ * additive.
  */
 @theme {
+  /* ---- Surfaces -----------------------------------------------------------
+   * Three steps, not one. The step between them is the elevation signal in dark
+   * mode, where a shadow is a dark halo on a dark ground and reads as nothing.
+   */
   --color-surface: oklch(100% 0 0);
-  --color-surface-muted: oklch(97% 0.005 250);
-  --color-border-subtle: oklch(90% 0.01 250);
+  --color-surface-muted: oklch(96.8% 0.008 75);
+  --color-surface-raised: oklch(100% 0 0);
 
-  --color-content: oklch(25% 0.02 250);
-  --color-content-muted: oklch(52% 0.02 250);
+  /* ---- Borders ------------------------------------------------------------
+   * `subtle` is a decorative divider. `strong` bounds an actual control and is
+   * therefore held to 3:1 by scripts/check-contrast.mjs — WCAG 1.4.11 applies to
+   * information needed to identify a component, not to a hairline between rows.
+   */
+  --color-border-subtle: oklch(91% 0.01 75);
+  --color-border-strong: oklch(64% 0.018 75);
 
-  --color-brand: oklch(55% 0.17 255);
-  --color-brand-hover: oklch(48% 0.17 255);
+  /* ---- Content ------------------------------------------------------------ */
+  --color-content: oklch(24% 0.012 60);
+  --color-content-muted: oklch(50% 0.014 60);
+
+  /* ---- Accent -------------------------------------------------------------
+   * Deliberately not the old blue and deliberately not terracotta: warm neutrals
+   * with a warm accent collapses into the most over-used palette in circulation.
+   * A violet-leaning indigo stays warm-compatible while remaining distinct.
+   */
+  --color-brand: oklch(52% 0.19 285);
+  --color-brand-hover: oklch(45% 0.19 285);
   --color-brand-content: oklch(100% 0 0);
+  --color-brand-wash: oklch(96% 0.025 285);
 
-  --color-danger: oklch(55% 0.19 25);
+  /* ---- Semantic -----------------------------------------------------------
+   * Separate from the accent by design: status must not read as branding.
+   */
+  --color-danger: oklch(52% 0.19 25);
   --color-danger-surface: oklch(96% 0.03 25);
+  --color-success: oklch(48% 0.13 155);
+  --color-success-surface: oklch(95.5% 0.035 155);
+  --color-warning: oklch(52% 0.11 70);
+  --color-warning-surface: oklch(95.5% 0.045 75);
 
-  --color-success: oklch(58% 0.14 155);
-  --color-warning: oklch(70% 0.15 75);
+  /* ---- Radius -------------------------------------------------------------- */
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
 
-  --radius-control: 0.5rem;
+  /* ---- Elevation -----------------------------------------------------------
+   * Warm-tinted rather than neutral black, so shadows sit in the same colour
+   * world as the surfaces they fall on.
+   */
+  --shadow-raised: 0 1px 2px oklch(24% 0.012 60 / 0.06);
+  --shadow-card:
+    0 1px 2px oklch(24% 0.012 60 / 0.05), 0 6px 16px oklch(24% 0.012 60 / 0.07);
+  --shadow-overlay:
+    0 2px 6px oklch(24% 0.012 60 / 0.06), 0 12px 32px oklch(24% 0.012 60 / 0.13);
+
+  /* ---- Motion --------------------------------------------------------------
+   * Overriding Tailwind's defaults retunes every `transition-*` utility at once,
+   * so components inherit the curve instead of each choosing one.
+   */
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --default-transition-duration: 160ms;
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Overlay entrances. Defined here rather than pulled from `tailwindcss-animate`,
+     which would be a new dependency (FR-015). Always used behind `motion-safe:`. */
+  --animate-pop-in: hydra-pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in-left: hydra-slide-in-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ---- Typography ----------------------------------------------------------
+   * A system stack, never a web font: this is a published library, and a library
+   * cannot ship @font-face without dictating network behaviour and layout-shift
+   * characteristics to every host application.
+   */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
 }
 
 /* Dark palette overrides the same custom properties `@theme` emitted onto :root.
@@ -36,44 +98,106 @@
  *  1. No opinion from the app: follows `prefers-color-scheme`, unless...
  *  2. ...the app sets `data-theme="light"` on <html> - forces light regardless of OS.
  *  3. ...the app sets `data-theme="dark"` on <html> - forces dark regardless of OS.
+ *
+ * Every token that changes is listed in BOTH blocks below. Defining a colour in only
+ * one of them is the classic bug: the un-stamped document then renders one theme's text
+ * on the other theme's ground.
  */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-surface: oklch(21% 0.015 250);
-    --color-surface-muted: oklch(26% 0.015 250);
-    --color-border-subtle: oklch(35% 0.015 250);
+    --color-surface: oklch(22% 0.008 70);
+    --color-surface-muted: oklch(18% 0.007 70);
+    --color-surface-raised: oklch(28% 0.011 70);
 
-    --color-content: oklch(96% 0.005 250);
-    --color-content-muted: oklch(72% 0.015 250);
+    --color-border-subtle: oklch(33% 0.011 70);
+    --color-border-strong: oklch(56% 0.017 70);
 
-    --color-danger-surface: oklch(28% 0.06 25);
+    --color-content: oklch(95% 0.006 70);
+    --color-content-muted: oklch(74% 0.012 70);
+
+    --color-brand: oklch(74% 0.145 285);
+    --color-brand-hover: oklch(80% 0.13 285);
+    --color-brand-content: oklch(20% 0.03 285);
+    --color-brand-wash: oklch(31% 0.055 285);
+
+    --color-danger: oklch(72% 0.145 25);
+    --color-danger-surface: oklch(30% 0.06 25);
+    --color-success: oklch(75% 0.14 155);
+    --color-success-surface: oklch(29% 0.055 155);
+    --color-warning: oklch(80% 0.12 75);
+    --color-warning-surface: oklch(30% 0.05 75);
+
+    /* Near-black grounds swallow a soft shadow, so dark elevation leans on the
+       surface tint above and the shadow merely deepens the edge. */
+    --shadow-raised: 0 1px 2px oklch(0% 0 0 / 0.4);
+    --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.35), 0 6px 16px oklch(0% 0 0 / 0.45);
+    --shadow-overlay: 0 2px 6px oklch(0% 0 0 / 0.4), 0 12px 32px oklch(0% 0 0 / 0.55);
   }
 }
 
 :root[data-theme="dark"] {
-  --color-surface: oklch(21% 0.015 250);
-  --color-surface-muted: oklch(26% 0.015 250);
-  --color-border-subtle: oklch(35% 0.015 250);
+  --color-surface: oklch(22% 0.008 70);
+  --color-surface-muted: oklch(18% 0.007 70);
+  --color-surface-raised: oklch(28% 0.011 70);
 
-  --color-content: oklch(96% 0.005 250);
-  --color-content-muted: oklch(72% 0.015 250);
+  --color-border-subtle: oklch(33% 0.011 70);
+  --color-border-strong: oklch(56% 0.017 70);
 
-  --color-danger-surface: oklch(28% 0.06 25);
+  --color-content: oklch(95% 0.006 70);
+  --color-content-muted: oklch(74% 0.012 70);
+
+  --color-brand: oklch(74% 0.145 285);
+  --color-brand-hover: oklch(80% 0.13 285);
+  --color-brand-content: oklch(20% 0.03 285);
+  --color-brand-wash: oklch(31% 0.055 285);
+
+  --color-danger: oklch(72% 0.145 25);
+  --color-danger-surface: oklch(30% 0.06 25);
+  --color-success: oklch(75% 0.14 155);
+  --color-success-surface: oklch(29% 0.055 155);
+  --color-warning: oklch(80% 0.12 75);
+  --color-warning-surface: oklch(30% 0.05 75);
+
+  --shadow-raised: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.35), 0 6px 16px oklch(0% 0 0 / 0.45);
+  --shadow-overlay: 0 2px 6px oklch(0% 0 0 / 0.4), 0 12px 32px oklch(0% 0 0 / 0.55);
+}
+
+@keyframes hydra-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hydra-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
 }
 
 /* Status colours are keyed by the backend's OrderStatus enum so a new status added
-   server-side shows up as an obvious unstyled badge rather than a silently wrong one. */
+   server-side shows up as an obvious unstyled badge rather than a silently wrong one.
+   The badge component pairs each of these with a non-colour glyph, so status survives
+   greyscale printing and colour blindness. */
 @layer components {
   .hydra-status-PENDING {
-    @apply bg-surface-muted text-content-muted;
+    @apply bg-surface-muted text-content-muted border-border-subtle;
   }
   .hydra-status-SHIPPED {
-    @apply bg-brand/10 text-brand;
+    @apply bg-brand-wash text-brand border-brand/25;
   }
   .hydra-status-DELIVERED {
-    @apply bg-success/10 text-success;
+    @apply bg-success-surface text-success border-success/25;
   }
   .hydra-status-CANCELLED {
-    @apply bg-danger-surface text-danger;
+    @apply bg-danger-surface text-danger border-danger/25;
   }
 }

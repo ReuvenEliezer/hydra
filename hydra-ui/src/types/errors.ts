@@ -8,6 +8,10 @@
  */
 export type ApiErrorCode =
   | "invalid_credentials"
+  /** The address the request was sent to names no organization. */
+  | "unknown_tenant_address"
+  /** The address names a real organization, but it is not active. */
+  | "tenant_inactive"
   | "invalid_refresh_token"
   | "refresh_token_reuse_detected"
   | "rate_limit_exceeded"
@@ -59,10 +63,19 @@ export type BusinessRuleError = ApiError & { code: "business_rule_violation" };
 /** Throttled (HTTP 429); carries `retryAfterSeconds` when the header was readable. */
 export type RateLimitError = ApiError & { code: "rate_limit_exceeded" };
 
-/** The subset of codes `useLogin` can surface. */
+/**
+ * The subset of codes `useLogin` can surface.
+ *
+ * The two tenant codes are here because an address can stop resolving between page load and
+ * submit — the organization is deactivated, or the user has a stale link open. Without them a
+ * login rejected on the address would render as "incorrect username or password", sending
+ * someone to re-type a password that was never the problem.
+ */
 export type AuthError = ApiError & {
   code:
     | "invalid_credentials"
+    | "unknown_tenant_address"
+    | "tenant_inactive"
     | "validation_error"
     | "rate_limit_exceeded"
     | "network_error"

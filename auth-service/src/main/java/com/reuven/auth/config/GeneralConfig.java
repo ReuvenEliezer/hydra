@@ -24,17 +24,17 @@ public class GeneralConfig {
     @Bean
     public JsonMapper jsonMapper() {
         return JsonMapper.builder()
-                // 1. הגדרות דסריאליזציה
+                // 1. Deserialization settings
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true)
 
-                // 2. הגדרות סריאליזציה (אין צורך ב-WRITE_DATES_AS_TIMESTAMPS, הוא כבר false כברירת מחדל!)
+                // 2. Serialization settings (no need for WRITE_DATES_AS_TIMESTAMPS, it's already false by default!)
                 .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
                 .configure(MapperFeature.DEFAULT_VIEW_INCLUSION, false)
 
-                // 3. תוספות מבנה
+                // 3. Structural additions
 //                .changeDefaultPropertyInclusion(incl -> incl.withValueInclusion(JsonInclude.Include.NON_NULL))
-                .findAndAddModules() // דואג לטעינת כל מודולי הזמן המודרניים
+                .findAndAddModules() // ensures all modern time modules are loaded
 //                .addModule(new DurationModule())
                 .build();
     }

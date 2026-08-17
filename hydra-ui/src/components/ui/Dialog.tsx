@@ -30,17 +30,21 @@ export function Dialog({
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 bg-black/40" />
+        <RadixDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-[2px]" />
         <RadixDialog.Content
           className={cn(
-            "bg-surface border-border-subtle fixed top-1/2 left-1/2 w-[min(28rem,calc(100vw-2rem))]",
-            "-translate-x-1/2 -translate-y-1/2 rounded-xl border p-6 shadow-lg",
-            "flex flex-col gap-4",
+            // `surface-raised` is what separates the dialog from the page in dark mode;
+            // the shadow does that job only in light mode.
+            "bg-surface-raised border-border-subtle shadow-overlay fixed top-1/2 left-1/2",
+            "w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2",
+            "rounded-(--radius-card) border p-7",
+            "flex flex-col gap-5",
+            "motion-safe:data-[state=open]:animate-pop-in",
             className,
           )}
         >
-          <div className="flex flex-col gap-1">
-            <RadixDialog.Title className="text-content text-base font-semibold">
+          <div className="flex flex-col gap-1.5">
+            <RadixDialog.Title className="text-content text-lg font-semibold tracking-tight">
               {title}
             </RadixDialog.Title>
             <RadixDialog.Description className="text-content-muted text-sm">
