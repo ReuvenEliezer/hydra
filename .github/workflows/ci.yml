@@ -94,3 +94,35 @@ jobs:
           name: surefire-reports
           path: '**/target/surefire-reports/*.txt'
           retention-days: 7
+  hydra-ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hydra-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: hydra-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
+      - name: Test report - hydra-ui
+        uses: dorny/test-reporter@v3
+        if: success() || failure()
+        with:
+          name: Tests - hydra-ui
+          path: 'hydra-ui/test-results/junit.xml'
+          reporter: java-junit
+          fail-on-error: true
+      - name: Build
+        run: npm run build
