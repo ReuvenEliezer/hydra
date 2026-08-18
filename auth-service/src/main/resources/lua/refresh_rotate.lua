@@ -10,9 +10,9 @@
 -- them do.
 --
 -- Token slot values (KEYS[1]/KEYS[2]) are one of:
---   'A'<SEP>userId<SEP>tenantId<SEP>familyId<SEP>rolesCsv   (active)
---   'R'<SEP>familyId                                        (rotated tombstone,
---                                                             kept for reuse detection)
+--   'A'<SEP>userId<SEP>tenantId<SEP>familyId<SEP>rolesCsv<SEP>username   (active)
+--   'R'<SEP>familyId                                                    (rotated tombstone,
+--                                                                         kept for reuse detection)
 --
 -- The grace pointer's value carries familyId alongside the raw token
 -- (familyId<SEP>newRawToken) so that ANY caller replaying a rotation - even
@@ -40,9 +40,9 @@
 -- ARGV[4] = graceTtlMillis        grace-window TTL, in milliseconds
 --
 -- Returns one SEP-joined string, first field is the outcome tag:
---   'ROTATED'<SEP>userId<SEP>tenantId<SEP>rolesCsv<SEP>newRawToken
---   'REPLAY' <SEP>userId<SEP>tenantId<SEP>rolesCsv<SEP>newRawToken   (idempotent replay)
---   'REUSE'  <SEP>familyId                                          (family was just revoked)
+--   'ROTATED'<SEP>userId<SEP>tenantId<SEP>rolesCsv<SEP>username<SEP>newRawToken
+--   'REPLAY' <SEP>userId<SEP>tenantId<SEP>rolesCsv<SEP>username<SEP>newRawToken   (idempotent replay)
+--   'REUSE'  <SEP>familyId                                                       (family was just revoked)
 --   'INVALID'
 
 local SEP = string.char(1)
@@ -82,8 +82,8 @@ local function replayFrom(graceVal)
         return 'INVALID'
     end
 
-    local np = split(newMetaRaw) -- {status, userId, tenantId, familyId, rolesCsv}
-    return 'REPLAY' .. SEP .. np[2] .. SEP .. np[3] .. SEP .. np[5] .. SEP .. newRawToken
+    local np = split(newMetaRaw) -- {status, userId, tenantId, familyId, rolesCsv, username}
+    return 'REPLAY' .. SEP .. np[2] .. SEP .. np[3] .. SEP .. np[5] .. SEP .. np[6] .. SEP .. newRawToken
 end
 
 local ttlRemaining = redis.call('PTTL', KEYS[1])
@@ -95,9 +95,9 @@ if val then
 
     if status == 'A' then
         -- Winner: this is the one and only caller that gets to rotate.
-        local userId, tenantId, familyId, rolesCsv = parts[2], parts[3], parts[4], parts[5]
+        local userId, tenantId, familyId, rolesCsv, username = parts[2], parts[3], parts[4], parts[5], parts[6]
         local familyKey = 'rt:family:' .. familyId
-        local newValue = 'A' .. SEP .. userId .. SEP .. tenantId .. SEP .. familyId .. SEP .. rolesCsv
+        local newValue = 'A' .. SEP .. userId .. SEP .. tenantId .. SEP .. familyId .. SEP .. rolesCsv .. SEP .. username
         local graceValue = familyId .. SEP .. ARGV[2]
 
         redis.call('SET', KEYS[2], newValue, 'PX', ARGV[3])
@@ -108,7 +108,7 @@ if val then
         -- traced back to its family.
         redis.call('SET', KEYS[1], 'R' .. SEP .. familyId, 'PX', ARGV[3])
 
-        return 'ROTATED' .. SEP .. userId .. SEP .. tenantId .. SEP .. rolesCsv .. SEP .. ARGV[2]
+        return 'ROTATED' .. SEP .. userId .. SEP .. tenantId .. SEP .. rolesCsv .. SEP .. username .. SEP .. ARGV[2]
     end
 
     if status == 'R' then

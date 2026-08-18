@@ -15,24 +15,24 @@
 //
 //    @BeforeEach
 //    void setUp() {
-//        // בניית ה-Mapper של Jackson 3 ורישום ה-JacksonModule המותאם שלך
+//        // Build the Jackson 3 Mapper and register your custom JacksonModule
 //        this.jsonMapper = JsonMapper.builder()
 //                .addModule(new DurationModule())
 //                .build();
 //    }
 //
 //    @Test
-//    @DisplayName("סריאליזציה ודסריאליזציה של Duration מלא ומדויק הכולל את כל יחידות הזמן")
+//    @DisplayName("Serialization and deserialization of a full, precise Duration covering all time units")
 //    void shouldSerializeAndDeserializeFullPreciseDuration() throws Exception {
-//        // הגדרת משך זמן מורכב: יומיים, 3 שעות, 4 דקות, 5 שניות, 600 מילי, 400 מיקרו, 500 ננו
+//        // Define a complex duration: 2 days, 3 hours, 4 minutes, 5 seconds, 600 millis, 400 micros, 500 nanos
 //        Duration originalDuration = Duration.ofDays(2)
 //                .plusHours(3)
 //                .plusMinutes(4)
 //                .plusSeconds(5)
 //                .plusMillis(600)
-//                .plusNanos(400_500); // 400,000 ננו זה 400 מיקרו, ועוד 500 ננו שארית
+//                .plusNanos(400_500); // 400,000 nanos is 400 micros, plus a 500 nano remainder
 //
-//        // 1. בדיקת סריאליזציה (Java -> JSON)
+//        // 1. Test serialization (Java -> JSON)
 //        String jsonResult = jsonMapper.writeValueAsString(originalDuration);
 //
 //        assertThat(jsonResult)
@@ -43,20 +43,20 @@
 //                .contains("\"ms\":600")
 //                .contains("\"micro\":400")
 //                .contains("\"nano\":500")
-//                .doesNotContain("\"negative\""); // לא צריך להופיע כשחיובי
+//                .doesNotContain("\"negative\""); // should not appear when positive
 //
-//        // 2. בדיקת דסריאליזציה (JSON -> Java)
+//        // 2. Test deserialization (JSON -> Java)
 //        Duration deserializedDuration = jsonMapper.readValue(jsonResult, Duration.class);
 //        assertThat(deserializedDuration).isEqualTo(originalDuration);
 //    }
 //
 //    @Test
-//    @DisplayName("טיפול מושלם ב-Duration שלילי (Negative)")
+//    @DisplayName("Correct handling of a negative Duration")
 //    void shouldHandleNegativeDurationCorrectly() throws Exception {
-//        // משך זמן שלילי: מינוס 5 שעות ו-30 דקות
+//        // Negative duration: minus 5 hours and 30 minutes
 //        Duration negativeDuration = Duration.ofHours(5).plusMinutes(30).negated();
 //
-//        // 1. בדיקת סריאליזציה (הערכים צריכים להיכתב כחיוביים לצד דגל negative: true)
+//        // 1. Test serialization (values should be written as positive alongside a negative: true flag)
 //        String jsonResult = jsonMapper.writeValueAsString(negativeDuration);
 //
 //        assertThat(jsonResult)
@@ -64,32 +64,32 @@
 //                .contains("\"hour\":5")
 //                .contains("\"min\":30");
 //
-//        // 2. בדיקת דסריאליזציה (החזרה לאובייקט שלילי תקין ב-Java)
+//        // 2. Test deserialization (returns to a valid negative object in Java)
 //        Duration deserializedDuration = jsonMapper.readValue(jsonResult, Duration.class);
 //        assertThat(deserializedDuration).isEqualTo(negativeDuration);
 //    }
 //
 //    @Test
-//    @DisplayName("תאימות לאחור: דסריאליזציה של JSON ישן או חלקי המכיל שעות ודקות בלבד")
+//    @DisplayName("Backward compatibility: deserialization of old or partial JSON containing only hours and minutes")
 //    void shouldBeBackwardCompatibleWithLegacyOrPartialJson() throws Exception {
-//        // JSON ישן שהגיע ממערכת צד-שלישי ללא שדות ימים או ננו-שניות
+//        // Legacy JSON received from a third-party system without day or nanosecond fields
 //        String legacyJson = "{\"hour\":12,\"min\":45}";
 //
 //        Duration deserialized = jsonMapper.readValue(legacyJson, Duration.class);
 //
-//        // מוודא שהמערכת לא קרסה והשלימה את השאר ל-0
+//        // Verify the system didn't crash and filled in the rest with 0
 //        Duration expected = Duration.ofHours(12).plusMinutes(45);
 //        assertThat(deserialized).isEqualTo(expected);
 //    }
 //
 //    @Test
-//    @DisplayName("סריאליזציה ודסריאליזציה של ערך אפס (Duration.ZERO)")
+//    @DisplayName("Serialization and deserialization of a zero value (Duration.ZERO)")
 //    void shouldHandleDurationZero() throws Exception {
 //        Duration zeroDuration = Duration.ZERO;
 //
 //        String jsonResult = jsonMapper.writeValueAsString(zeroDuration);
 //
-//        // כל השדות צריכים להתאפס
+//        // All fields should be zeroed out
 //        assertThat(jsonResult).isEqualTo("{\"day\":0,\"hour\":0,\"min\":0,\"sec\":0,\"ms\":0,\"micro\":0,\"nano\":0}");
 //
 //        Duration deserialized = jsonMapper.readValue(jsonResult, Duration.class);
@@ -97,13 +97,13 @@
 //    }
 //
 //    @Test
-//    @DisplayName("טיפול בערך null על ידי הסריאלייזר")
+//    @DisplayName("Handling a null value in the serializer")
 //    void shouldHandleNullDurationSafely() throws Exception {
-//        // שליחת null ישירות ל-writeValueAsString מחזירה את המילה "null" בטקסט
+//        // Sending null directly to writeValueAsString returns the text "null"
 //        String jsonResult = jsonMapper.writeValueAsString(null);
 //        assertThat(jsonResult).isEqualTo("null");
 //
-//        // בדיקה שהדסריאלייזר יודע לקרוא מחרוזת "null" חזרה לטיפוס null ב-Java
+//        // Verify the deserializer can read the "null" string back into a null value in Java
 //        Duration deserialized = jsonMapper.readValue("null", Duration.class);
 //        assertThat(deserialized).isNull();
 //    }

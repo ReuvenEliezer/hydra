@@ -29,6 +29,11 @@ const WIRE_CODES = new Set<string>([
   "invalid_refresh_token",
   "refresh_token_reuse_detected",
   "rate_limit_exceeded",
+  // Shape A again, from the login path. Both arrive in `message`, and both MUST beat the
+  // status-derived fallback: 400 would otherwise read as a validation error and 403 as a
+  // permission denial, neither of which describes what actually happened.
+  "unknown_tenant_address",
+  "tenant_inactive",
 ]);
 
 /**
@@ -40,6 +45,10 @@ const INVALID_CREDENTIALS_MESSAGE = "invalid credentials";
 
 const DEFAULT_MESSAGES: Record<ApiErrorCode, string> = {
   invalid_credentials: "Incorrect username or password.",
+  unknown_tenant_address:
+    "This web address isn't recognized. Check the address you used, or ask your administrator for the correct sign-in link.",
+  tenant_inactive:
+    "This organization's account is currently inactive, so sign-in is unavailable. Please contact your administrator.",
   invalid_refresh_token: "Your session has expired. Please sign in again.",
   refresh_token_reuse_detected: "Your session was ended for security reasons. Please sign in again.",
   rate_limit_exceeded: "Too many attempts. Please wait a moment and try again.",
@@ -98,7 +107,15 @@ function resolveCode(status: number, body: WireErrorBody): ApiErrorCode {
 function resolveMessage(code: ApiErrorCode, body: WireErrorBody): string {
   const message = asString(body.message);
   // When `message` IS the machine code (shapes A and D) it is not display text.
-  if (message && !WIRE_CODES.has(message)) return message;
+  //
+  // "Invalid credentials" is the same kind of sentinel even though it reads like prose:
+  // `resolveCode` already treats it as shape A's stand-in for a machine code, and letting it
+  // through here would mean the two functions disagree about what it is - the code says
+  // `invalid_credentials` while the text shown is the backend's raw wording rather than the
+  // deliberately non-revealing copy in DEFAULT_MESSAGES.
+  const isSentinel =
+    message && (WIRE_CODES.has(message) || message.toLowerCase() === INVALID_CREDENTIALS_MESSAGE);
+  if (message && !isSentinel) return message;
 
   // Shape B puts the human text in `message` and the code in `error`, so the branch
   // above already covered it. Anything left is shape C or a code-only body.

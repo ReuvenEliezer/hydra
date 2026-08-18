@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { LoginForm } from "../src/components/hydra/LoginForm";
 import { SessionGate } from "../src/components/hydra/SessionGate";
 import { useSession } from "../src/hooks/useSession";
-import { withHydra } from "./hydra-decorator";
+import { withHydra, withMockedTenant } from "./hydra-decorator";
 
 const meta: Meta<typeof LoginForm> = {
   title: "Hydra/LoginForm",
@@ -15,6 +15,35 @@ type Story = StoryObj<typeof LoginForm>;
 
 export const Default: Story = {
   render: (args) => withHydra(<LoginForm {...args} />),
+};
+
+/**
+ * The five states the sign-in page can be in, all driven by the load-time tenant lookup and
+ * nothing else. Three of them render NO FORM: an address that resolves to nothing has no
+ * legitimate submission, and a disabled button is still a submission path in waiting.
+ *
+ * `Unknown` and `LookupFailed` deliberately read differently. "Your address isn't recognized"
+ * and "we couldn't reach the service" ask the user for opposite responses, and showing the
+ * first when the second is true sends them to fix an address that was never wrong.
+ */
+export const Resolving: Story = {
+  render: () => withMockedTenant("pending", <LoginForm />),
+};
+
+export const Recognized: Story = {
+  render: () => withMockedTenant("recognized", <LoginForm />),
+};
+
+export const Inactive: Story = {
+  render: () => withMockedTenant("inactive", <LoginForm />),
+};
+
+export const Unknown: Story = {
+  render: () => withMockedTenant("unknown", <LoginForm />),
+};
+
+export const LookupFailed: Story = {
+  render: () => withMockedTenant("error", <LoginForm />),
 };
 
 function SessionInspector() {

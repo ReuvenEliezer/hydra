@@ -93,7 +93,7 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
   function userFromToken(token: string): SessionUser | null {
     const claims = decodeAccessTokenClaims(token);
     if (claims === null) return null;
-    return { id: claims.userId, tenantId: claims.tenantId, roles: claims.roles };
+    return { id: claims.userId, tenantId: claims.tenantId, username: claims.username, roles: claims.roles };
   }
 
   function adoptAccessToken(token: string): void {
@@ -134,18 +134,43 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
    * loop). A 429 means the endpoint is throttled but the session is FINE — signing the
    * user out there would drop sessions under load and lose their work (FR-021).
    */
+  /**
+   * `requestRefresh` with the same generation guard every other `await` in `performRefresh`
+   * already has, returning `null` for "superseded" instead of throwing.
+   *
+   * `clear()` aborts the in-flight request AND bumps the generation, so the fetch rejects with
+   * an `AbortError` that `requestRefresh` faithfully reports as a network failure. Without this
+   * guard that rejection escapes before any generation check runs, and a sign-out during an
+   * in-flight refresh surfaces to the caller as "We couldn't reach the server" - a connectivity
+   * error for something that was our own deliberate cancellation. The generation is what tells
+   * the two apart: a genuine network failure leaves it untouched and still throws.
+   */
+  async function requestRefreshUnlessSuperseded(
+    signal: AbortSignal,
+    myGeneration: number,
+  ): Promise<Response | null> {
+    try {
+      return await requestRefresh(signal);
+    } catch (cause) {
+      if (myGeneration !== generation) return null;
+      throw cause;
+    }
+  }
+
   async function performRefresh(myGeneration: number): Promise<string | null> {
     const controller = new AbortController();
     abortController = controller;
 
-    let response = await requestRefresh(controller.signal);
+    let response = await requestRefreshUnlessSuperseded(controller.signal, myGeneration);
+    if (response === null) return null;
 
     if (response.status === 429) {
       const rateLimited = await errorFromResponse(response);
       if (myGeneration !== generation) return null;
       await sleep(Math.max(1, rateLimited.retryAfterSeconds ?? 1) * 1000);
       if (myGeneration !== generation) return null;
-      response = await requestRefresh(controller.signal);
+      response = await requestRefreshUnlessSuperseded(controller.signal, myGeneration);
+      if (response === null) return null;
     }
 
     if (myGeneration !== generation) return null;

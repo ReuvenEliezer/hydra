@@ -21,6 +21,8 @@ export { useLogin } from "./hooks/useLogin";
 export type { UseLoginResult } from "./hooks/useLogin";
 export { useLogout } from "./hooks/useLogout";
 export type { UseLogoutResult } from "./hooks/useLogout";
+export { useTenant } from "./hooks/useTenant";
+export type { TenantState, TenantStatus } from "./hooks/useTenant";
 
 // Order hooks
 export { useOrders } from "./hooks/useOrders";

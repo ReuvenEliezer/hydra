@@ -6,9 +6,10 @@ import com.reuven.auth.dto.RegisterRequest;
 import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
-import com.reuven.Headers;
+import com.reuven.JwtClaimNames;
 import com.reuven.Role;
 import com.reuven.auth.service.JwtProvider;
+import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,16 +54,16 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     protected void setUp() throws Exception {
         super.setUp();
-        Tenant systemTenant = new Tenant("System Tenant", EntityStatus.ACTIVE);
+        Tenant systemTenant = new Tenant("System Tenant", "system", EntityStatus.ACTIVE);
         tenantRepository.save(systemTenant);
         superAdmin = new User(systemTenant, "super-admin",
                 passwordEncoder.encode(SUPER_ADMIN_PASSWORD), Role.SUPER_ADMIN, EntityStatus.ACTIVE);
         userRepository.save(superAdmin);
 
-        testTenant = new Tenant("Acme Corp", EntityStatus.ACTIVE);
+        testTenant = new Tenant("Acme Corp", "acme", EntityStatus.ACTIVE);
         tenantRepository.save(testTenant);
         userRepository.save(new User(testTenant, "acme-admin", passwordEncoder.encode(ADMIN_PASSWORD), Role.ADMIN, EntityStatus.ACTIVE));
-        adminToken = loginAs("acme-admin", ADMIN_PASSWORD, testTenant.getId());
+        adminToken = loginAs("acme-admin", ADMIN_PASSWORD, testTenant.getUrlIdentifier());
     }
 
 
@@ -102,7 +103,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void superAdminLogin_success() throws Exception {
         var loginRequest = new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD);
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
+                        .header(HttpHeaders.HOST, superAdmin.getTenant().getUrlIdentifier() + ".localhost")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
@@ -114,7 +115,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void login_wrongPassword_returns401() throws Exception {
         var loginRequest = new LoginRequest("super-admin", "totally-wrong-password");
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
+                        .header(HttpHeaders.HOST, superAdmin.getTenant().getUrlIdentifier() + ".localhost")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized());
@@ -125,7 +126,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void login_unknownUser_returns401() throws Exception {
         var loginRequest = new LoginRequest("nobody-by-this-name", "irrelevant-password");
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header(Headers.TENANT_ID, superAdmin.getTenant().getId().toString())
+                        .header(HttpHeaders.HOST, superAdmin.getTenant().getUrlIdentifier() + ".localhost")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized())
@@ -133,25 +134,83 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("Correct username/password but wrong tenant header returns 401")
+    @DisplayName("Correct username/password at another tenant's address returns 401")
     void login_correctCredentialsWrongTenant_returns401() throws Exception {
-        // super-admin exists under the System tenant, not testTenant
+        // super-admin exists under the System tenant, so acme.localhost must not authenticate them
         var loginRequest = new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD);
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header(Headers.TENANT_ID, testTenant.getId().toString())
+                        .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized());
     }
 
+    // ---- Tenant resolution on the login path (US2, US3) -----------------------------
+
     @Test
-    @DisplayName("Missing X-Tenant-ID header returns 400")
-    void login_missingTenantHeader_returns400() throws Exception {
-        var loginRequest = new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD);
+    @DisplayName("A super admin's token carries their OWN tenant, resolved from their own address")
+    void superAdminLogin_atSystemAddress_carriesSystemTenantClaim() throws Exception {
+        String token = loginAs("super-admin", SUPER_ADMIN_PASSWORD, "system");
+
+        SignedJWT jwt = SignedJWT.parse(token);
+        String tenantClaim = jwt.getJWTClaimsSet().getStringClaim(JwtClaimNames.TENANT_ID);
+
+        assertThat(tenantClaim).isEqualTo(superAdmin.getTenant().getId().toString());
+    }
+
+    @Test
+    @DisplayName("A super admin's credentials do NOT authenticate at another tenant's address")
+    void superAdminLogin_atAnotherTenantsAddress_returns401() throws Exception {
+        // Resolution is strictly per-address and is never bypassed by role. A super admin's
+        // cross-tenant AUTHORITY is a post-login concern; where they may SIGN IN is not.
         mockMvc.perform(post("/api/v1/auth/login")
+                        .header(HttpHeaders.HOST, "acme.localhost")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(jsonMapper.writeValueAsString(loginRequest)))
-                .andExpect(status().isBadRequest());
+                        .content(jsonMapper.writeValueAsString(
+                                new LoginRequest("super-admin", SUPER_ADMIN_PASSWORD))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("An address that resolves to no tenant returns 400 unknown_tenant_address, never 401")
+    void login_unresolvableAddress_returns400() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .header(HttpHeaders.HOST, "nosuch.localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(
+                                new LoginRequest("acme-admin", ADMIN_PASSWORD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("unknown_tenant_address"));
+    }
+
+    @Test
+    @DisplayName("Valid credentials at an unresolvable address still fail closed - never attributed elsewhere")
+    void login_validCredentialsAtUnknownAddress_isNeverAttributedToAnotherTenant() throws Exception {
+        // The credentials below are genuinely valid FOR acme. Sent to an address that names
+        // no tenant, they must not fall back to a default, a first, or a guessed tenant.
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .header(HttpHeaders.HOST, "localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(
+                                new LoginRequest("acme-admin", ADMIN_PASSWORD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("unknown_tenant_address"))
+                .andExpect(jsonPath("$.token").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("An inactive tenant's address returns 403 tenant_inactive, distinct from both 400 and 401")
+    void login_inactiveTenantAddress_returns403() throws Exception {
+        testTenant.setStatus(EntityStatus.SUSPENDED);
+        tenantRepository.save(testTenant);
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .header(HttpHeaders.HOST, "acme.localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(
+                                new LoginRequest("acme-admin", ADMIN_PASSWORD))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("tenant_inactive"));
     }
 
     @Test
@@ -161,7 +220,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
         String superAdminToken = loginAs(
                 "super-admin",
                 SUPER_ADMIN_PASSWORD,
-                superAdmin.getTenant().getId()
+                superAdmin.getTenant().getUrlIdentifier()
         );
 
         String username = "admin-" + UUID.randomUUID();
@@ -215,7 +274,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     @DisplayName("User cannot register user outside their own tenant context")
     void registerUser_crossTenant_isRejected() throws Exception {
 
-        Tenant otherTenant = new Tenant("Other Corp", EntityStatus.ACTIVE);
+        Tenant otherTenant = new Tenant("Other Corp", "other", EntityStatus.ACTIVE);
         tenantRepository.save(otherTenant);
 
         String requestUsername = "intruder";
@@ -243,7 +302,7 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     void registerUser_byPlainUser_returns403() throws Exception {
         userRepository.save(new User(testTenant, "regular-joe",
                 passwordEncoder.encode(USER_PASSWORD), Role.USER, EntityStatus.ACTIVE));
-        String userToken = loginAs("regular-joe", USER_PASSWORD, testTenant.getId());
+        String userToken = loginAs("regular-joe", USER_PASSWORD, testTenant.getUrlIdentifier());
 
         mockMvc.perform(post("/api/v1/admin/register-user", testTenant.getId())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
@@ -273,9 +332,14 @@ class AuthIntegrationTest extends BaseIntegrationTest {
                 .andExpect(status().isUnprocessableContent());
     }
 
-    private String loginAs(String username, String password, UUID tenantId) throws Exception {
+    /**
+     * Signs in at {@code <urlIdentifier>.localhost}. MockHttpServletRequest derives
+     * getServerName() from a Host header when one is set, so this exercises the real resolution
+     * path rather than a test-only shortcut.
+     */
+    private String loginAs(String username, String password, String urlIdentifier) throws Exception {
         MvcResult result = mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
-                        .header(Headers.TENANT_ID, tenantId.toString())
+                        .header(HttpHeaders.HOST, urlIdentifier + ".localhost")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new LoginRequest(username, password))))
                 .andExpect(MockMvcResultMatchers.status().isOk())

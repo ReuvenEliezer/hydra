@@ -32,6 +32,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
+    "contrast": "node scripts/check-contrast.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,css,md,json}\"",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
@@ -76,7 +77,7 @@
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.5",
     "vite-plugin-dts": "^4.4.0",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.7"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

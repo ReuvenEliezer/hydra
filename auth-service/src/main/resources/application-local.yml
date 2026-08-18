@@ -23,4 +23,6 @@ refresh-token:
     secure: false
 hydra:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:6006
+    allowed-origin-patterns: http://*.localhost:5173,http://*.localhost:6006
+  tenant:
+    base-domains: localhost

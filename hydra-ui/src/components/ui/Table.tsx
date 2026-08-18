@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Inbox } from "lucide-react";
 import { cn } from "../../lib/cn";
 
 export interface TableColumn<T> {
@@ -28,16 +29,24 @@ export function Table<T>({
   className,
 }: TableProps<T>) {
   return (
-    <div className={cn("border-border-subtle overflow-x-auto rounded-xl border", className)}>
+    <div
+      className={cn(
+        "bg-surface border-border-subtle shadow-card overflow-x-auto rounded-(--radius-card) border",
+        className,
+      )}
+    >
       <table className="w-full border-collapse text-left text-sm">
         <caption className="sr-only">{caption}</caption>
-        <thead className="bg-surface-muted">
-          <tr>
+        <thead>
+          <tr className="border-border-subtle border-b">
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                className={cn("text-content-muted px-4 py-2.5 font-medium", column.className)}
+                className={cn(
+                  "text-content-muted px-5 py-3.5 text-xs font-semibold tracking-wide uppercase",
+                  column.className,
+                )}
               >
                 {column.header}
               </th>
@@ -47,11 +56,11 @@ export function Table<T>({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td
-                colSpan={columns.length}
-                className="text-content-muted px-4 py-8 text-center"
-              >
-                {emptyMessage}
+              <td colSpan={columns.length} className="px-5 py-14 text-center">
+                <span className="bg-surface-muted text-content-muted mx-auto mb-3 flex size-11 items-center justify-center rounded-(--radius-control)">
+                  <Inbox aria-hidden="true" className="size-5" />
+                </span>
+                <span className="text-content block text-sm font-semibold">{emptyMessage}</span>
               </td>
             </tr>
           ) : (
@@ -60,12 +69,12 @@ export function Table<T>({
                 key={rowKey(row)}
                 onClick={onRowClick === undefined ? undefined : () => onRowClick(row)}
                 className={cn(
-                  "border-border-subtle text-content border-t",
+                  "border-border-subtle text-content border-t transition-colors",
                   onRowClick !== undefined && "hover:bg-surface-muted cursor-pointer",
                 )}
               >
                 {columns.map((column) => (
-                  <td key={column.key} className={cn("px-4 py-2.5", column.className)}>
+                  <td key={column.key} className={cn("px-5 py-3.5", column.className)}>
                     {column.render(row)}
                   </td>
                 ))}

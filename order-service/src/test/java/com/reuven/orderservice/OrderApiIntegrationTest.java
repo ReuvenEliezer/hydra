@@ -17,15 +17,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest
-//@WithMockUser // ✅ מייצר משתמש מדומה ומאשר את החסימה של ה-401
-@AutoConfigureMockMvc(addFilters = false) // ✅ מבטל את כל הפילטרים (כולל אבטחה) כדי להתמקד בלוגיקה של ה-API בלבד
+//@WithMockUser // ✅ generates a mock user and lifts the 401 block
+@AutoConfigureMockMvc(addFilters = false) // ✅ disables all filters (including security) to focus purely on API logic
 class OrderApiIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
 
 //    @Test
-//    @DisplayName("בדיקת POST API: מוודא ש-Duration מורכב וחיובי עובר סריאליזציה ודסריאליזציה תקינה")
+//    @DisplayName("POST API test: verifies that a complex, positive Duration passes serialization and deserialization correctly")
 //    void shouldProcessOrderWithComplexDuration() throws Exception {
 //        String requestJson = """
 //            {
@@ -44,7 +44,7 @@ class OrderApiIntegrationTest {
 //            }
 //            """;
 //
-//        // ✅ נתיב מעודכן
+//        // ✅ updated path
 //        mockMvc.perform(post("/api/test-orders")
 //                        .contentType(MediaType.APPLICATION_JSON)
 //                        .content(requestJson))
@@ -59,9 +59,9 @@ class OrderApiIntegrationTest {
 //    }
 
     @Test
-    @DisplayName("בדיקת POST API: מוודא ש-Duration חיובי בפורמט ISO-8601 עובר סריאליזציה תקינה")
+    @DisplayName("POST API test: verifies that a positive Duration in ISO-8601 format serializes correctly")
     void shouldProcessOrderWithComplexDuration() throws Exception {
-        // שעה וחצי מיוצגת בסטנדרט כ-PT1H30M
+        // An hour and a half is represented in the standard as PT1H30M
         String requestJson = """
             {
                 "orderId": "ORD-123",
@@ -76,7 +76,7 @@ class OrderApiIntegrationTest {
                         .content(requestJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value("ORD-123"))
-                // וידוא שג'קסון מחזיר את ה-Duration כמחרוזת ISO תקנית
+                // verify that Jackson returns the Duration as a valid ISO string
                 .andExpect(jsonPath("$.processingTime").value("PT1H30M"))
                 .andExpect(jsonPath("$.orderDate").value("2026-06-19"))
                 .andExpect(jsonPath("$.createdAt").value("2026-06-19T10:15:30"));
@@ -84,7 +84,7 @@ class OrderApiIntegrationTest {
 
 
 //    @Test
-//    @DisplayName("בדיקת POST API: טיפול ב-Duration שלילי (Negative)")
+//    @DisplayName("POST API test: handling a negative Duration")
 //    void shouldProcessOrderWithNegativeDuration() throws Exception {
 //        String requestJson = """
 //            {
@@ -104,7 +104,7 @@ class OrderApiIntegrationTest {
 //            }
 //            """;
 //
-//        // ✅ נתיב מעודכן
+//        // ✅ updated path
 //        mockMvc.perform(post("/api/test-orders")
 //                        .contentType(MediaType.APPLICATION_JSON)
 //                        .content(requestJson))
@@ -114,9 +114,9 @@ class OrderApiIntegrationTest {
 //    }
 
     @Test
-    @DisplayName("בדיקת POST API: טיפול ב-Duration שלילי (Negative) בפורמט ISO-8601 הרשמי")
+    @DisplayName("POST API test: handling a negative Duration in the official ISO-8601 format")
     void shouldProcessOrderWithNegativeDuration() throws Exception {
-        // מינוס 45 דקות מיוצג בסטנדרט הבינלאומי עם סימן מינוס בתחילה: -PT45M
+        // Minus 45 minutes is represented in the international standard with a leading minus sign: -PT45M
         String requestJson = """
             {
                 "orderId": "ORD-NEG",
@@ -130,12 +130,12 @@ class OrderApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson))
                 .andExpect(status().isOk())
-                // וידוא שהערך השלילי נקלט ונשמר במבנה ה-ISO הנכון שלו
+                // verify that the negative value is accepted and stored in its correct ISO structure
                 .andExpect(jsonPath("$.processingTime").value("PT-45M"));
     }
 
     @Test
-    @DisplayName("בדיקת GET API: התאמת LocalDate מה-URL")
+    @DisplayName("GET API test: matching LocalDate from the URL")
     void shouldParseLocalDateFromQueryParam() throws Exception {
         mockMvc.perform(get("/api/test-orders/search")
                         .param("date", "2026-06-19"))
@@ -144,7 +144,7 @@ class OrderApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("בדיקת GET API: התאמת Duration מתוך ה-URL (פורמט ISO-8601)")
+    @DisplayName("GET API test: matching Duration from the URL (ISO-8601 format)")
     void shouldParseDurationFromQueryParam() throws Exception {
         mockMvc.perform(get("/api/test-orders/by-duration")
                         .param("duration", "PT2H"))

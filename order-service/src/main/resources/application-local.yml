@@ -18,4 +18,4 @@ spring:
         web-allow-others: false
 hydra:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:6006
+    allowed-origin-patterns: http://*.localhost:5173,http://*.localhost:6006

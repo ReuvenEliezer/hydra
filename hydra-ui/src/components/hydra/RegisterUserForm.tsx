@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { useRegisterUser } from "../../hooks/useRegisterUser";
 import { cn } from "../../lib/cn";
 import {
@@ -57,9 +58,9 @@ export function RegisterUserForm({ className, onRegistered }: RegisterUserFormPr
       <Card
         title="Add a user"
         description="Creates a standard user in your tenant."
-        className={cn("w-full max-w-sm", className)}
+        className={cn("w-full max-w-md", className)}
       >
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+        <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
           <Input
             label="Username"
             name="username"
@@ -86,14 +87,19 @@ export function RegisterUserForm({ className, onRegistered }: RegisterUserFormPr
             <p
               role="alert"
               data-error-code={error.code}
-              className="bg-danger-surface text-danger rounded-(--radius-control) px-3 py-2 text-sm"
+              className="bg-danger-surface text-danger border-danger/30 flex items-start gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
             >
+              <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
               {error.message}
             </p>
           )}
 
           {createdUsername !== null && (
-            <p role="status" className="text-success text-sm">
+            <p
+              role="status"
+              className="bg-success-surface text-success border-success/30 flex items-center gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
+            >
+              <CheckCircle2 aria-hidden="true" className="size-4 shrink-0" />
               Created “{createdUsername}”.
             </p>
           )}

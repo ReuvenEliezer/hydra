@@ -68,8 +68,13 @@ public class SecurityCommons {
                 .requestMatchers("/api/v1/auth/login").permitAll()
                 .requestMatchers("/api/v1/auth/refresh").permitAll()
                 .requestMatchers("/api/v1/auth/logout").permitAll()
+                // The sign-in page calls this before anyone has credentials, so it cannot require
+                // them. It answers only from the request's own Host and never returns a tenant
+                // UUID, so being public exposes nothing DNS does not already.
+                .requestMatchers(HttpMethod.GET, "/api/v1/tenant").permitAll()
                 .requestMatchers("/.well-known/jwks.json").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/admin/tenants").hasAuthority(Role.SUPER_ADMIN.authority())
                 .requestMatchers("/api/v1/admin/*/register-admin").hasAuthority(Role.SUPER_ADMIN.authority())
                 .requestMatchers("/api/v1/admin/register-user").hasAnyAuthority(Role.SUPER_ADMIN.authority(), Role.ADMIN.authority())
                 .anyRequest().authenticated();

@@ -52,7 +52,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     protected void setUp() throws Exception {
         super.setUp();
-        testTenant = tenantRepository.save(new Tenant("Acme Corp", EntityStatus.ACTIVE));
+        testTenant = tenantRepository.save(new Tenant("Acme Corp", "acme", EntityStatus.ACTIVE));
         testUser = userRepository.save(new User(testTenant, "rate-limit-user",
                 passwordEncoder.encode(USER_PASSWORD), com.reuven.Role.USER, EntityStatus.ACTIVE));
     }
@@ -70,14 +70,14 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(post(LOGIN_URL)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                            .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                             .content(loginBody("rate-limit-user", "wrong-password")))
                     .andExpect(status().isUnauthorized());
         }
 
         MvcResult result = mockMvc.perform(post(LOGIN_URL)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                        .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                         .content(loginBody("rate-limit-user", "wrong-password")))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
@@ -100,14 +100,14 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
             mockMvc.perform(post(LOGIN_URL)
                     .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.1")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                    .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                     .content(loginBody("rate-limit-user", "wrong-password")));
         }
 
         mockMvc.perform(post(LOGIN_URL)
                         .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                        .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                         .content(loginBody("rate-limit-user", "wrong-password")))
                 .andExpect(status().isTooManyRequests());
 
@@ -117,7 +117,7 @@ class RateLimitIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post(LOGIN_URL)
                         .header(ClientIpResolver.X_FORWARDED_FOR, "10.0.0.2")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header(com.reuven.Headers.TENANT_ID, testTenant.getId().toString())
+                        .header(HttpHeaders.HOST, testTenant.getUrlIdentifier() + ".localhost")
                         .content(loginBody("rate-limit-user-2", USER_PASSWORD)))
                 .andExpect(status().isOk());
     }

@@ -4,7 +4,15 @@ import { RegisterAdminForm } from "../src/components/hydra/RegisterAdminForm";
 import { RegisterUserForm } from "../src/components/hydra/RegisterUserForm";
 import { SessionGate } from "../src/components/hydra/SessionGate";
 import { useSession } from "../src/hooks/useSession";
-import { STORY_TENANT_ID, withHydra } from "./hydra-decorator";
+import { withHydra } from "./hydra-decorator";
+
+/**
+ * A fixture UUID for the story only. Unlike LoginForm, `RegisterAdminForm` legitimately
+ * names a TARGET tenant by id — it is an authenticated super-admin surface whose caller
+ * already works in tenant UUIDs — so this prop is deliberately untouched by the move to
+ * address-based resolution. Replace it with a real tenant id when running the story.
+ */
+const TARGET_TENANT_ID = "9a0c6391-d84f-48d0-9867-30193fc8951c";
 
 const meta: Meta = {
   title: "Hydra/Provisioning",
@@ -43,7 +51,7 @@ export const BothForms: Story = {
         <div className="flex flex-col gap-6">
           <CurrentRoles />
           <RegisterUserForm />
-          <RegisterAdminForm defaultTenantId={STORY_TENANT_ID} />
+          <RegisterAdminForm defaultTenantId={TARGET_TENANT_ID} />
         </div>
       </SessionGate>,
     ),

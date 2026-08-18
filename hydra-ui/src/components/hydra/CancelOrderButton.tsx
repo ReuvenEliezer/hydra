@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { useCancelOrder } from "../../hooks/useCancelOrder";
 import { canCancel } from "../../lib/order-transitions";
 import type { Order } from "../../types/order";
@@ -68,7 +69,12 @@ export function CancelOrderButton({ order, className, onCancelled }: CancelOrder
         }
       >
         {error !== null && (
-          <p role="alert" data-error-code={error.code} className="text-danger text-sm">
+          <p
+            role="alert"
+            data-error-code={error.code}
+            className="bg-danger-surface text-danger border-danger/30 flex items-start gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
+          >
+            <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
             {error.message}
           </p>
         )}

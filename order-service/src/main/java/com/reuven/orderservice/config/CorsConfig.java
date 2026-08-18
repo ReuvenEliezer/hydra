@@ -2,6 +2,7 @@ package com.reuven.orderservice.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,15 +38,23 @@ public class CorsConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        List<String> allowedOrigins = corsProperties.allowedOrigins();
-        if (allowedOrigins.isEmpty()) {
-            log.warn("hydra.cors.allowed-origins is empty - all cross-origin browser requests will be rejected");
+        List<String> allowedOriginPatterns = corsProperties.allowedOriginPatterns();
+        if (allowedOriginPatterns.isEmpty()) {
+            log.warn("hydra.cors.allowed-origin-patterns is empty - all cross-origin browser requests will be rejected");
         } else {
-            log.info("CORS enabled for origins {} (credentials allowed, Retry-After exposed)", allowedOrigins);
+            log.info("CORS enabled for origin patterns {} (credentials allowed, Retry-After exposed)", allowedOriginPatterns);
         }
 
+        CorsConfiguration config = createConfig(allowedOriginPatterns);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    private @NonNull CorsConfiguration createConfig(List<String> allowedOriginPatterns) {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);
+        config.setAllowedOriginPatterns(allowedOriginPatterns);
         config.setAllowedMethods(List.of(
                 HttpMethod.GET.name(),
                 HttpMethod.POST.name(),
@@ -59,9 +68,6 @@ public class CorsConfig {
         config.setExposedHeaders(List.of(HttpHeaders.RETRY_AFTER));
         config.setAllowCredentials(true);
         config.setMaxAge(corsProperties.maxAge());
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
+        return config;
     }
 }

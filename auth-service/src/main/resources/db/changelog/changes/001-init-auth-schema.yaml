@@ -3,7 +3,7 @@ databaseChangeLog:
       id: 20260621-01-initial-schema-with-roles
       author: reuven
       changes:
-        # טבלת Tenats (ללא שינוי)
+        # Tenants table (unchanged)
         - createTable:
             tableName: tenants
             columns:
@@ -12,7 +12,7 @@ databaseChangeLog:
               - column: {name: status, type: varchar(30), constraints: {nullable: false}}
               - column: {name: created_at, type: timestamp, constraints: {nullable: false}}
 
-        # טבלת Users (ללא עמודת Role!)
+        # Users table (no Role column!)
         - createTable:
             tableName: users
             columns:
@@ -22,14 +22,14 @@ databaseChangeLog:
               - column: {name: password_hash, type: varchar(255), constraints: {nullable: false}}
               - column: {name: status, type: varchar(30), constraints: {nullable: false}}
 
-        # טבלת קישור לתפקידים (הפתרון לריבוי תפקידים)
+        # Role-linking table (the solution for multiple roles)
         - createTable:
             tableName: user_roles
             columns:
               - column: {name: user_id, type: uuid, constraints: {nullable: false}}
               - column: {name: role, type: varchar(30), constraints: {nullable: false}}
 
-        # אילוצים
+        # Constraints
         - addForeignKeyConstraint:
             baseTableName: users
             baseColumnNames: tenant_id

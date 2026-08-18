@@ -10,5 +10,5 @@ import java.util.UUID;
  * rotation, or an idempotent replay of an in-flight grace-window rotation (see
  * RefreshTokenService for why those two cases must return identical token material).
  */
-public record RotationResult(String rawRefreshToken, UUID userId, UUID tenantId, List<Role> roles) {
+public record RotationResult(String rawRefreshToken, UUID userId, UUID tenantId, String username, List<Role> roles) {
 }

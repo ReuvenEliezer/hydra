@@ -10,7 +10,6 @@ import {
   errorShapeA,
   errorShapeB,
 } from "../mocks/handlers";
-import { TEST_TENANT_ID } from "../mocks/jwt";
 import { server } from "../mocks/server";
 import { startSignedOut, wrapper } from "../test-utils";
 
@@ -33,12 +32,12 @@ describe("useLogin", () => {
     expect(result.current.login.isPending).toBe(false);
   });
 
-  it("sends X-Tenant-ID — without it the backend rejects the call before checking credentials", async () => {
+  it("sends no tenant header at all — the server resolves the tenant from the address", async () => {
     startSignedOut();
-    let sentTenantId: string | null = null;
+    let sentHeaders: Headers | null = null;
     server.use(
       http.post(`${API_BASE_URL}/api/v1/auth/login`, ({ request }) => {
-        sentTenantId = request.headers.get("X-Tenant-ID");
+        sentHeaders = request.headers;
         return HttpResponse.json({ userId: "id", token: "a.b.c" });
       }),
     );
@@ -50,7 +49,11 @@ describe("useLogin", () => {
       await result.current.login.login(VALID_USERNAME, VALID_PASSWORD);
     });
 
-    expect(sentTenantId).toBe(TEST_TENANT_ID);
+    // Not "the header holds the right value" — the header must not exist. A tenant the
+    // browser can name is a tenant the browser can aim a credential at.
+    expect(sentHeaders!.get("X-Tenant-ID")).toBeNull();
+    const tenantish = [...sentHeaders!.keys()].filter((name) => name.toLowerCase().includes("tenant"));
+    expect(tenantish).toEqual([]);
   });
 
   it("surfaces invalid credentials without revealing which field was wrong", async () => {

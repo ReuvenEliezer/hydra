@@ -49,6 +49,10 @@ Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with 
 
 ## Getting started
 
+> **Running the whole stack — backend and front-end — start to finish: [RUNNING.md](./RUNNING.md).**
+> It also covers the failures that look like something else, and is the better starting point
+> if you just want the app up.
+
 Start local infra (Postgres + Redis):
 
 ```bash
@@ -83,27 +87,56 @@ chmod 600 keys/jwt-private-key-local.pem
 ```bash
 export JWT_PRIVATE_KEY_PATH="$(pwd)/keys/jwt-private-key-local.pem"
 export APP_BOOTSTRAP_SUPER_ADMIN_PASSWORD=admin12345
-mvn -pl auth-service -am spring-boot:run
+mvn -pl auth-service -am -DskipTests install
+mvn -pl auth-service spring-boot:run
 ```
+
+Two commands, not one: `-am` builds the upstream modules, but it also makes `spring-boot:run`
+execute against every module in the reactor — starting with the root aggregator pom, which has
+no main class and fails with `Unable to find a suitable main class`. So build the dependencies
+first, then run the single module without `-am`.
 
 In IntelliJ, use a Spring Boot run configuration for `com.reuven.auth.AuthServiceApplication` with those two vars under Environment Variables instead (a shareable one lives at `.run/AuthServiceApplication.run.xml` — update the key path and password there rather than duplicating the config elsewhere).
 
-**3. Look up the bootstrap tenant.** `BootstrapService` doesn't log the generated tenant UUID, so fetch it via the H2 console (enabled in `local`, at `http://localhost:8083/h2-console`, JDBC URL/credentials from `application-local.yml`):
+**3. Log in at the tenant's own address** (`auth-service` listens on `:8083`).
 
-```sql
-SELECT id, name FROM tenants;
-```
-
-**4. Log in to get a token** (`auth-service` listens on `:8083`):
+There is no tenant header. The tenant is whatever address the request is sent to: the label in front of a configured base domain (`hydra.tenant.base-domains`, which is `localhost` in the `local` and `test` profiles). `BootstrapService` seeds the System Tenant at `system`, so the super admin signs in at `system.localhost`:
 
 ```bash
-curl -i -X POST http://localhost:8083/api/v1/auth/login \
+curl -i -X POST http://system.localhost:8083/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: <tenant-uuid-from-step-3>" \
   -d '{"username":"super-admin","password":"admin12345"}'
 ```
 
 The access token comes back in the JSON body (`AuthResponse`); the refresh token is set as an httpOnly cookie, not returned in the body.
+
+Note it is the **URL** that carries the tenant, not a header — `curl http://localhost:8083/...` sends `Host: localhost`, which names no tenant and is rejected with `400 unknown_tenant_address` before your credentials are read. Two other codes are worth recognizing: `403 tenant_inactive` means the address is real but the organization is switched off, and `401 Invalid credentials` is the only one that is actually about your username or password.
+
+**If `*.localhost` does not resolve on your machine** (Chrome and Firefox handle it natively; Safari and some CLI tools historically do not), add the addresses you use to `/etc/hosts`:
+
+```
+127.0.0.1 system.localhost acme.localhost
+```
+
+**4. Check an address without signing in.** The sign-in page calls this on load; it needs no authentication and never returns a tenant UUID:
+
+```bash
+curl -s http://system.localhost:8083/api/v1/tenant
+# {"status":"recognized","displayName":"System Tenant"}
+```
+
+It always answers `200`; the outcome is in the body — `recognized`, `inactive`, or `unknown`.
+
+**5. Provision another tenant** (super admin only). The identifier must be a lowercase DNS label (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, max 63 chars), must not be one of `hydra.tenant.reserved-identifiers`, and **can never be reused** — the claim outlives the tenant, so deleting a tenant does not free its address:
+
+```bash
+curl -i -X POST http://system.localhost:8083/api/v1/admin/tenants \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token-from-step-3>" \
+  -d '{"name":"Acme Corp","urlIdentifier":"acme"}'
+```
+
+Acme's users sign in at `http://acme.localhost:8083` immediately — no restart and no configuration step in between.
 
 CI generates its own ephemeral RSA keypair per run (see `.github/workflows/ci.yml`) purely for tests — that key is not a real credential and is unrelated to the one you generate locally.
 

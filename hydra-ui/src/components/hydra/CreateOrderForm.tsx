@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { AlertCircle } from "lucide-react";
 import { useCreateOrder } from "../../hooks/useCreateOrder";
 import { cn } from "../../lib/cn";
 import type { Order } from "../../types/order";
@@ -34,8 +35,8 @@ export function CreateOrderForm({ className, onCreated }: CreateOrderFormProps) 
   const showsServerError = error !== null && error.code !== "validation_error";
 
   return (
-    <Card title="New order" className={cn("w-full max-w-sm", className)}>
-      <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+    <Card title="New order" className={cn("w-full max-w-md", className)}>
+      <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
         <Input
           label="Order number"
           name="orderNumber"
@@ -59,8 +60,9 @@ export function CreateOrderForm({ className, onCreated }: CreateOrderFormProps) 
           <p
             role="alert"
             data-error-code={error.code}
-            className="bg-danger-surface text-danger rounded-(--radius-control) px-3 py-2 text-sm"
+            className="bg-danger-surface text-danger border-danger/30 flex items-start gap-2 rounded-(--radius-control) border px-3.5 py-3 text-sm font-medium"
           >
+            <AlertCircle aria-hidden="true" className="mt-px size-4 shrink-0" />
             {error.message}
           </p>
         )}

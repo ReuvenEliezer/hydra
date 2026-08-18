@@ -20,7 +20,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: "jsdom",
+    // jsdom, with Node's AbortController/AbortSignal restored — see the file for why.
+    environment: "./tests/env-jsdom-node-abort.ts",
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.{ts,tsx}"],
     restoreMocks: true,

@@ -13,3 +13,14 @@ server:
 refresh-token:
   cookie:
     secure: true
+
+# Tenant resolution and CORS are configured in prod through environment variables, NOT here.
+# application.yaml already reads both as placeholders, and a literal `hydra:` block in this file
+# would override those placeholders and make the env vars silently ineffective. Set instead:
+#
+#   TENANT_BASE_DOMAINS=hydra.example.com
+#   CORS_ALLOWED_ORIGIN_PATTERNS=https://*.hydra.example.com
+#
+# Both fail closed when unset: no address resolves, and no cross-origin browser call is allowed.
+# Every component between the browser and this service must forward the original Host unmodified
+# (FR-011) - a proxy that rewrites it to an upstream name makes every tenant resolve to unknown.

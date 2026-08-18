@@ -20,6 +20,7 @@ export type SessionStatus =
 export interface SessionUser {
   id: string;
   tenantId: string;
+  username: string;
   roles: Role[];
 }
 

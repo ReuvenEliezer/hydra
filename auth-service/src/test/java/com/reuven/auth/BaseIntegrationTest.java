@@ -3,10 +3,12 @@ package com.reuven.auth;
 import com.reuven.auth.config.TestContainersConfig;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.entity.User;
+import com.reuven.auth.repository.ReservedTenantIdentifierRepository;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
 import com.reuven.auth.service.JwtProvider;
 import com.reuven.auth.service.KeyProvider;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,8 +24,13 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URL;
-import java.nio.file.Paths;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
@@ -40,6 +47,8 @@ public abstract class BaseIntegrationTest {
     protected Tenant testTenant;
     protected User superAdmin;
 
+    private static String ephemeralKeyPath;
+
     protected static final String SUPER_ADMIN_PASSWORD = "SuperAdmin@123";
     protected static final String ADMIN_PASSWORD = "Admin@12345";
     protected static final String USER_PASSWORD = "UserPass@123";
@@ -52,6 +61,8 @@ public abstract class BaseIntegrationTest {
     protected TenantRepository tenantRepository;
     @Autowired
     protected UserRepository userRepository;
+    @Autowired
+    protected ReservedTenantIdentifierRepository reservedTenantIdentifierRepository;
     @Autowired
     protected PasswordEncoder passwordEncoder;
     @Autowired
@@ -67,29 +78,48 @@ public abstract class BaseIntegrationTest {
 //        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
 
         // LocalKeyProvider (active under "test" too - see its @Profile) takes a file
-        // PATH, not raw PEM content, so we resolve the fixture's classpath URI to an
-        // actual filesystem path rather than reading it into a String.
+        // PATH, not raw PEM content, so every branch below yields a filesystem path
+        // rather than reading key material into a String.
         String path = System.getenv("JWT_PRIVATE_KEY_PATH");
 
         if (path == null || path.isBlank()) {
-            // fallback for local
-            URL resource = BaseIntegrationTest.class
-                    .getClassLoader()
-                    .getResource("test-private-key.pem");
-
-            if (resource == null) {
-                throw new IllegalStateException("No JWT key found (env or test resource)");
-            }
-
-            try {
-                path = Paths.get(resource.toURI()).toString();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // CI sets the env var above (see .github/workflows/ci.yml); a bare `mvn test`
+            // has nothing, and no key fixture is committed - `keys/` is gitignored and a
+            // private key has no business in version control even as a test fixture.
+            // So mint a throwaway pair per JVM: tests only need signatures that verify
+            // against the public key derived from this same private key.
+            path = ephemeralKeyPath();
         }
         String finalPath = path;
         registry.add("jwt.private-key-path", () -> finalPath);
         registry.add("jwt.issuer", () -> "hydra-auth-service");
+    }
+
+    // Generated once per JVM, not per context load: @DirtiesContext rebuilds the context
+    // after every test method, and RSA keygen on each rebuild is pure wasted wall-clock.
+    private static synchronized String ephemeralKeyPath() {
+        if (ephemeralKeyPath == null) {
+            ephemeralKeyPath = generateEphemeralKeyFile();
+        }
+        return ephemeralKeyPath;
+    }
+
+    private static String generateEphemeralKeyFile() {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            // getEncoded() on an RSA PrivateKey is PKCS#8 DER - exactly what
+            // RsaKeyConverters.pkcs8() expects once PEM-wrapped.
+            String base64 = Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.UTF_8))
+                    .encodeToString(generator.generateKeyPair().getPrivate().getEncoded());
+            String pem = "-----BEGIN PRIVATE KEY-----\n" + base64 + "\n-----END PRIVATE KEY-----\n";
+            Path keyFile = Files.createTempFile("hydra-test-private-key-", ".pem");
+            keyFile.toFile().deleteOnExit();
+            Files.writeString(keyFile, pem);
+            return keyFile.toString();
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException("Could not generate an ephemeral RSA test key", e);
+        }
     }
 
     @BeforeEach
@@ -98,9 +128,36 @@ public abstract class BaseIntegrationTest {
         cleanRedisDatabase();
     }
 
+    /**
+     * Cleans up AFTER each test as well, so the last test of a run leaves nothing behind.
+     * <p>
+     * The Postgres container is per-run and thrown away, but the Redis container is declared
+     * {@code withReuse(true)} in {@code TestContainersConfig} - it deliberately OUTLIVES the
+     * JVM and is re-attached by the next run. Refresh-token families and rate-limit buckets
+     * written by the final test therefore survive into the next run, where they can only show
+     * up as an unexplained 429 or an already-consumed token in a test that never created one.
+     * Cleaning on the way in cannot help there: the damage is read before that test's
+     * {@code @BeforeEach} has flushed anything.
+     */
+    @AfterEach
+    protected void tearDown() {
+        cleanPostgresDatabase();
+        cleanRedisDatabase();
+    }
+
+    /**
+     * Deletion order is a foreign-key constraint, not a style choice: users reference tenants.
+     * <p>
+     * The reserved-identifier ledger is cleared last and ONLY because this is a test database.
+     * In production those rows are insert-only by design - a claimed address stays claimed for
+     * good - which is exactly why a row left behind here is not inert: the next test that tries
+     * to provision the same identifier gets a perfectly correct "already taken" rejection for a
+     * tenant no test in this run ever created.
+     */
     private void cleanPostgresDatabase() {
         userRepository.deleteAll();
         tenantRepository.deleteAll();
+        reservedTenantIdentifierRepository.deleteAll();
     }
 
     private void cleanRedisDatabase() {

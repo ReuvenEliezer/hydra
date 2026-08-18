@@ -64,7 +64,10 @@ describe("the same rules apply in every credential form", () => {
 
     render(<LoginForm />, { wrapper });
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Username"), "good-username");
+    // `find`, not `get`: LoginForm renders its loading state until the provider's tenant
+    // lookup settles, so the fields do not exist on the first synchronous tick. The sibling
+    // cases below use `get` correctly - the register forms are not gated on that lookup.
+    await user.type(await screen.findByLabelText("Username"), "good-username");
     await user.type(screen.getByLabelText("Password"), TOO_LONG_PASSWORD);
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 

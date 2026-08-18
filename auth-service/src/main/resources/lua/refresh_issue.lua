@@ -14,10 +14,11 @@
 -- ARGV[4] = rolesCsv
 -- ARGV[5] = hash (of the newly issued raw token)
 -- ARGV[6] = ttlMillis (refresh-token TTL, in milliseconds)
+-- ARGV[7] = username
 
 local SEP = string.char(1)
 
-local value = 'A' .. SEP .. ARGV[1] .. SEP .. ARGV[2] .. SEP .. ARGV[3] .. SEP .. ARGV[4]
+local value = 'A' .. SEP .. ARGV[1] .. SEP .. ARGV[2] .. SEP .. ARGV[3] .. SEP .. ARGV[4] .. SEP .. ARGV[7]
 
 redis.call('SET', KEYS[1], value, 'PX', ARGV[6])
 redis.call('SET', KEYS[2], ARGV[5], 'PX', ARGV[6])

@@ -31,9 +31,9 @@ class SecurityIntegrationTest extends BaseIntegrationTest {
         userRepository.deleteAll();
         tenantRepository.deleteAll(); // Important to also clean tenants
         // Creating valid tenant and user
-        Tenant tenant = new Tenant();
-        tenant.setName("Test Tenant");
-        tenant.setStatus(EntityStatus.ACTIVE);
+        // url_identifier is NOT NULL, and Tenant deliberately exposes no setter for it, so the
+        // three-argument constructor is the only way to build a persistable tenant.
+        Tenant tenant = new Tenant("Test Tenant", "test-tenant", EntityStatus.ACTIVE);
         tenant = tenantRepository.save(tenant); // Save the tenant and get the object with the ID
         tenantId = tenant.getId(); // Save the tenant ID for use in tests
 
