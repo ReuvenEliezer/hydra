@@ -1,4 +1,4 @@
-package com.reuven.auth.config;
+package com.reuven.browseredge;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -6,7 +6,7 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Browser CORS settings for the auth-service HTTP API.
+ * Browser CORS settings, shared by every service that serves browser clients.
  * <p>
  * {@code allowedOriginPatterns} holds origin PATTERNS, not literal origins - every tenant now
  * signs in at its own subdomain, so each is its own browser origin and a fixed list would need a
@@ -25,11 +25,11 @@ import java.util.List;
  * than silently opening the API to every origin.
  */
 @ConfigurationProperties(prefix = "hydra.cors")
-public record CorsProperties(List<String> allowedOriginPatterns, Duration maxAge) {
+public record BrowserOriginProperties(List<String> allowedOriginPatterns, Duration maxAge) {
 
     private static final Duration DEFAULT_MAX_AGE = Duration.ofMinutes(30);
 
-    public CorsProperties {
+    public BrowserOriginProperties {
         allowedOriginPatterns = allowedOriginPatterns == null ? List.of() : List.copyOf(allowedOriginPatterns);
         maxAge = maxAge == null ? DEFAULT_MAX_AGE : maxAge;
     }

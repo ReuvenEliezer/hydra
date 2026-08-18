@@ -11,6 +11,7 @@ Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with 
 | `infra-shared` | Pure POJO module — **no framework dependencies**. Shared types: `AuthenticatedUser`, `Role`/`Roles`, `Headers`, `JwtClaimNames`, `ErrorResponse`. |
 | `infra-database` | Shared persistence infrastructure (Postgres, H2 for tests, Liquibase, Spring Data JPA). |
 | `rate-limit-starter` | Spring Boot auto-configuration module for declarative rate limiting: `@RateLimited` + AOP (`RateLimiterAspect`), SpEL key expressions, `RateLimiterEngine` abstraction with a Bucket4j/Redis-Lettuce implementation (`Bucket4jRateLimiterEngine`) and a `NoOpRateLimiterEngine`, `ClientIpResolver`, `RateLimitExceptionHandler`. Registered via `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. |
+| `browser-edge-starter` | Spring Boot auto-configuration module for the browser origin policy (CORS) and the controlled tenant-domain set it validates against: `BrowserEdgeAutoConfiguration` contributes the `CorsConfigurationSource` both services consume, and `OriginPatternValidator` fails startup on an unsafe `hydra.cors.allowed-origin-patterns` / `hydra.tenant.base-domains` configuration. Single source for both services — see [Browser edge & CORS](#browser-edge--cors) below. |
 | `integration-tests` | Cross-service integration tests only (no `src/main`). Boots `auth-service` and `order-service` as real Spring contexts in the same JVM and exercises the actual HTTP/JWT contract between them. Builds last in the reactor. |
 
 ## Architecture
@@ -39,13 +40,38 @@ Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with 
 - Client: Lettuce. Used for refresh-token state (`auth-service`) and distributed rate-limit buckets (`rate-limit-starter`).
 - `LettuceBasedProxyManager` backed by a Spring-managed connection bean.
 
+### Browser edge & CORS
+
+- The browser origin policy (`hydra.cors.*`) and the controlled tenant-domain set
+  (`hydra.tenant.base-domains`) are defined exactly once, in `browser-edge-starter`, and consumed
+  by both `auth-service` and `order-service`. Neither service binds either key itself.
+- **Supported topology**: one registrable domain per deployment — a same-registrable-domain
+  set of per-tenant subdomains (`acme.hydra.example.com`, `beta.hydra.example.com`, …) in
+  production, and same-host, different-port local development (`*.localhost:5173`,
+  `*.localhost:6006`). Both are same-site, so the `SameSite=Strict` refresh cookie survives.
+- **Not supported**: cross-registrable-domain deployments (e.g. a front end at
+  `*.hydra.example.com` calling an API at `*.otherapp.io`). `OriginPatternValidator` refuses to
+  start rather than let this in — see FR-017 in
+  [specs/002-cors-edge-hardening/spec.md](specs/002-cors-edge-hardening/spec.md). If a future
+  deployment genuinely needs this, FR-007 governs the corresponding relaxation of the cookie's
+  `SameSite` attribute (and the CSRF protection that would then become mandatory) — this feature
+  does not implement that relaxation.
+- Any component placed between a browser and these services (load balancer, ingress, gateway,
+  reverse proxy, service mesh sidecar) must be **transparent**: it forwards `Host` unmodified,
+  emits no cross-origin headers of its own, and does not touch `Set-Cookie`/`Cookie`. The full,
+  testable contract is
+  [specs/002-cors-edge-hardening/contracts/transparent-edge-contract.md](specs/002-cors-edge-hardening/contracts/transparent-edge-contract.md),
+  executed by the `edge-conformance`-tagged suite in `integration-tests`. Read it before
+  configuring any real edge — the constraints are cheaper to meet up front than to discover from
+  a failing conformance run.
+
 ## Tech stack
 
 - Java 25, Spring Boot 4.1, Spring Security (incl. OAuth2 resource server), Spring Data JPA, Spring Data Redis, Spring AOP
 - Nimbus JOSE+JWT (RSA signing/JWKS), Bucket4j + Lettuce (rate limiting), Liquibase, Lombok
 - AWS SDK v2 (`secretsmanager`) for cloud key material
 - Testcontainers (Postgres, Redis) + JUnit 5 + AssertJ across all modules
-- Maven multi-module build (reactor order: `infra-shared` → `infra-database` → `rate-limit-starter` → `auth-service` → `order-service` → `integration-tests`)
+- Maven multi-module build (reactor order: `infra-shared` → `infra-database` → `rate-limit-starter` → `browser-edge-starter` → `auth-service` → `order-service` → `integration-tests`)
 
 ## Getting started
 

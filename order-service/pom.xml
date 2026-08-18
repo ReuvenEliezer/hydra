@@ -26,6 +26,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Single source of the browser origin policy (CORS) and the controlled tenant-domain
+             set - see browser-edge-starter/BrowserEdgeAutoConfiguration. -->
+        <dependency>
+            <groupId>com.reuven</groupId>
+            <artifactId>browser-edge-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
