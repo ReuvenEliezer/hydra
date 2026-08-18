@@ -1,0 +1,12 @@
+# order-service's own test suite runs @SpringBootTest with no active profile, so it resolves
+# the base application.yaml directly rather than an application-{profile}.yml overlay. That
+# base file's hydra.cors.allowed-origin-patterns defaults to http://*.localhost:5173 (via
+# CORS_ALLOWED_ORIGIN_PATTERNS), but hydra.tenant.base-domains has no default at all - it is
+# meant to come from TENANT_BASE_DOMAINS in every real deployment. Without this override,
+# BrowserEdgeAutoConfiguration correctly refuses to start: the CORS pattern would be checked
+# against an empty controlled-domain set. This file exists purely to give the test context a
+# base domain the default CORS pattern is actually valid against - test resources take
+# precedence over src/main/resources on the test classpath.
+hydra:
+  tenant:
+    base-domains: localhost

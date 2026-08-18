@@ -49,6 +49,12 @@ jobs:
       # Postgres in-process (random ports, no external orchestration needed), so it's just
       # another reactor module here, not a separately stood-up environment.
       # -fae (fail-at-end): surfaces every failing module in one run, not just the first.
+      #
+      # This includes the @Tag("edge-conformance") suite in integration-tests/.../edge - it
+      # is not filtered out by any -Dgroups here, so it runs on every build without a separate
+      # step, which is what makes SC-009 ("zero such instances reach a ready state") an
+      # enforced property of CI rather than something run by hand. See
+      # specs/002-cors-edge-hardening/contracts/transparent-edge-contract.md.
       - name: Run all tests
         env:
           JWT_PRIVATE_KEY_PATH: ${{ github.workspace }}/keys/test-private-key.pem
@@ -75,6 +81,14 @@ jobs:
         with:
           name: Tests - order-service
           path: 'order-service/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: true
+      - name: Test report - browser-edge-starter
+        uses: dorny/test-reporter@v3
+        if: success() || failure()
+        with:
+          name: Tests - browser-edge-starter
+          path: 'browser-edge-starter/target/surefire-reports/*.xml'
           reporter: java-junit
           fail-on-error: true
       - name: Test report - cross-service integration

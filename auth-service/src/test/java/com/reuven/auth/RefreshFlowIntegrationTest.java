@@ -65,6 +65,20 @@ class RefreshFlowIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("FR-014 regression: the refresh cookie stays SameSite=Strict and host-only "
+            + "(no Domain attribute), so it can never span tenant subdomains")
+    void login_cookieNeverBroadensScopeAcrossTenants() throws Exception {
+        Cookie cookie = loginAndGetRefreshCookie();
+
+        // Host-only: no Domain attribute at all. Setting one, even to the shared base domain,
+        // would transmit this tenant's refresh token to every other tenant's subdomain - a
+        // cross-tenant credential leak dressed as a cookie-scope tweak (contracts/
+        // transparent-edge-contract.md Clause 4).
+        assertThat(cookie.getDomain()).isNull();
+        assertThat(cookie.getAttribute("SameSite")).isEqualTo("Strict");
+    }
+
+    @Test
     @DisplayName("refresh with a valid cookie returns a new access token and rotates the cookie")
     void refresh_withValidCookie_rotatesTokenAndIssuesNewAccessToken() throws Exception {
         Cookie firstRefreshCookie = loginAndGetRefreshCookie();

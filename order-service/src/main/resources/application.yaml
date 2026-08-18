@@ -16,12 +16,20 @@ spring:
         jwt:
           jwk-set-uri: ${AUTH_SERVICE_URL:http://localhost:8083}/.well-known/jwks.json
           issuer-uri: ${AUTH_SERVICE_ISSUER:hydra-auth-service}
-# Browser origins allowed to call this API. Explicit origins only - "*" is illegal
-# alongside allowCredentials(true). Comma-separated.
+# Browser origins allowed to call this API, as PATTERNS - every tenant is its own origin, so a
+# fixed per-origin list would need a deployment step per tenant. Patterns are not "*": Spring
+# matches the request's Origin and echoes back that one specific origin, which is what keeps
+# allowCredentials(true) legal. Comma-separated; an empty value still fails closed.
 hydra:
   cors:
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://*.localhost:5173}
     max-age: ${CORS_MAX_AGE:PT30M}
+  # The controlled tenant-domain set every hydra.cors pattern above is validated against
+  # (browser-edge-starter). order-service has no tenant Host resolution of its own - it derives
+  # tenant from the JWT claim - but it shares this key so CORS validation has a base domain to
+  # check patterns against.
+  tenant:
+    base-domains: ${TENANT_BASE_DOMAINS:}
 management:
   endpoints:
     web:
