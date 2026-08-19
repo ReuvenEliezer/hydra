@@ -50,13 +50,6 @@ databaseChangeLog:
                   type: timestamp
                   defaultValueComputed: CURRENT_TIMESTAMP
 
-        - addForeignKeyConstraint:
-            baseTableName: orders
-            baseColumnNames: tenant_id
-            referencedTableName: tenants
-            referencedColumnNames: id
-            constraintName: fk_orders_tenant
-
         - createIndex:
             indexName: idx_orders_tenant_id
             tableName: orders

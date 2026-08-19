@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-drift-widgets
+      author: test
+      changes:
+        - createTable:
+            tableName: drift_widgets
+            columns:
+              - column: {name: id, type: int, constraints: {primaryKey: true}}

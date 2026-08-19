@@ -1,0 +1,19 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-ok-table
+      author: test
+      logicalFilePath: changelog/failing.yaml
+      changes:
+        - createTable:
+            tableName: ok_table
+            columns:
+              - column: {name: id, type: int, constraints: {primaryKey: true}}
+  - changeSet:
+      id: 002-fails-column-on-missing-table
+      author: test
+      logicalFilePath: changelog/failing.yaml
+      changes:
+        - addColumn:
+            tableName: ok_table
+            columns:
+              - column: {name: extra, type: varchar(10)}

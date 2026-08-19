@@ -1,14 +1,15 @@
 spring:
   datasource:
-    url: jdbc:h2:file:~/data/auth_db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    # Overridable so an isolated run (a throwaway file, a scratch DB) can point elsewhere
+    # without editing this file. Left hardcoded, DB_URL is silently ignored and the run
+    # lands on the shared local database instead - which is how a "sandboxed" test ends up
+    # writing to real dev data.
+    url: ${DB_URL:jdbc:h2:file:~/data/auth_db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE}
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
   jpa:
     database-platform: org.hibernate.dialect.H2Dialect
-    hibernate:
-      ddl-auto: update
-    show-sql: true
   h2:
     console:
       enabled: true

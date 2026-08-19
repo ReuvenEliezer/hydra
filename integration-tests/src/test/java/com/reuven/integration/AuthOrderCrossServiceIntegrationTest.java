@@ -176,10 +176,22 @@ class AuthOrderCrossServiceIntegrationTest {
                 Map.entry("JWT_PRIVATE_KEY_PATH", path),
                 Map.entry("app.bootstrap.super-admin-password", "password")
         ));
+        // spring.liquibase.change-log is overridden here to a file: URL even though
+        // auth-service's own application.yaml already finds its changelog at Liquibase's
+        // default classpath location with no config at all (006-liquibase-schema-migration).
+        // Both services deliberately use that same default path, and both modules are on this
+        // JVM's classpath (integration-tests depends on both) - a plain classpath: lookup for
+        // that path is genuinely ambiguous here: Spring resolves ONE winner across the merged
+        // classpath, by classpath order, regardless of which SpringApplication.class is
+        // running. A file: URL sidesteps classpath resolution entirely (DefaultResourceLoader
+        // builds it as a direct filesystem Resource, never touching the classloader's resource
+        // scan), so each context deterministically gets its OWN module's changelog. See the
+        // matching override on orderApp.run() below.
         authContext = authApp.run(
                 "--server.port=0",
                 "--spring.profiles.active=local",
-                "--spring.datasource.url=" + AUTH_TEST_DB_URL
+                "--spring.datasource.url=" + AUTH_TEST_DB_URL,
+                "--spring.liquibase.change-log=" + OwnChangelogFileUrl.forApplication(AuthServiceApplication.class)
         );
         authPort = Integer.parseInt(authContext.getEnvironment().getProperty("local.server.port"));
 
@@ -209,9 +221,13 @@ class AuthOrderCrossServiceIntegrationTest {
                 Map.entry("spring.profiles.active", "local"),
                 Map.entry("spring.security.oauth2.resourceserver.jwt.jwk-set-uri", "http://localhost:" + authPort + "/.well-known/jwks.json")
         ));
+        // See the matching comment on authApp.run() above: this override is what actually
+        // routes order-service's own changelog to its own context, rather than an ambiguous
+        // classpath: lookup that could resolve to auth-service's identically-pathed file.
         orderContext = orderApp.run("--server.port=0",
                 "--spring.profiles.active=local",
-                "--spring.datasource.url=" + ORDER_TEST_DB_URL);
+                "--spring.datasource.url=" + ORDER_TEST_DB_URL,
+                "--spring.liquibase.change-log=" + OwnChangelogFileUrl.forApplication(OrderServiceApplication.class));
         orderPort = Integer.parseInt(orderContext.getEnvironment().getProperty("local.server.port"));
     }
 

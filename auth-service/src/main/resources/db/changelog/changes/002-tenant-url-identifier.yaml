@@ -1,13 +1,7 @@
-# PARITY DOCUMENTATION ONLY - THIS FILE NEVER EXECUTES.
-#
-# Liquibase is not a dependency of auth-service (check auth-service/pom.xml), so nothing in
-# db/changelog/** is applied at startup. The schema below is created by Hibernate's
-# `spring.jpa.hibernate.ddl-auto: update` from the JPA mappings on Tenant and
-# ReservedTenantIdentifier, in every profile.
-#
-# It is written anyway so this tree keeps describing the real schema: whenever Liquibase is
-# adopted (its own decision, deliberately not folded into 003-tenant-url-resolution), the
-# changelog is not starting from a schema it has never seen.
+# As of 006-liquibase-schema-migration, Liquibase is the schema authority: this changelog
+# executes at startup (spring.liquibase.change-log in application.yaml), and
+# spring.jpa.hibernate.ddl-auto is validate in every profile. Hibernate no longer creates or
+# alters this schema.
 #
 # No backfill and no nullable interim state: per the feature's Assumptions the database is
 # wiped, so url_identifier is NOT NULL UNIQUE from the first boot.
