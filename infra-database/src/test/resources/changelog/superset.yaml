@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - include:
+      file: changelog/base.yaml
+  - changeSet:
+      id: 002-add-widget-name
+      author: test
+      changes:
+        - addColumn:
+            tableName: widgets
+            columns:
+              - column: {name: name, type: varchar(50)}

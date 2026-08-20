@@ -6,6 +6,9 @@ spring:
       enabled: always
   application:
     name: order-service
+  jpa:
+    hibernate:
+      ddl-auto: validate
 #  mvc:
 #    format:
 #      date: iso

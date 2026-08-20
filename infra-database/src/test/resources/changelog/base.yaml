@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-widgets
+      author: test
+      changes:
+        - createTable:
+            tableName: widgets
+            columns:
+              - column: {name: id, type: int, constraints: {primaryKey: true}}

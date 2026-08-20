@@ -6,6 +6,7 @@ import com.reuven.auth.entity.EntityStatus;
 import com.reuven.auth.entity.Tenant;
 import com.reuven.auth.repository.TenantRepository;
 import com.reuven.auth.repository.UserRepository;
+import com.reuven.integration.OwnChangelogFileUrl;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.utility.DockerImageName;
@@ -72,12 +73,21 @@ final class EdgeConformanceFixture {
         // literal fallback. Harmless on a machine with something already listening on 6379,
         // which is exactly why this only broke in CI. Command-line args are the highest-
         // priority source, matching the working pattern in AuthOrderCrossServiceIntegrationTest.
+        // spring.liquibase.change-log is overridden to a file: URL even though this fixture
+        // starts ONLY auth-service: integration-tests depends on order-service too, so its
+        // classes (and its identically-pathed db/changelog/db.changelog-master.yaml - both
+        // services deliberately share Liquibase's default location) are on this JVM's
+        // classpath regardless of which SpringApplication actually runs. A plain classpath:
+        // lookup fails loudly here - Liquibase's own resource resolution treats more than one
+        // physical match as a hard error (ChangeLogParseException: "Found 2 files with the
+        // path..."), not a silent pick. See OwnChangelogFileUrl for the full explanation.
         ConfigurableApplicationContext authContext = authApp.run(
                 "--server.port=0",
                 "--spring.profiles.active=local",
                 "--spring.data.redis.host=" + redis.getHost(),
                 "--spring.data.redis.port=" + redis.getMappedPort(6379),
-                "--spring.datasource.url=jdbc:h2:mem:" + dbName + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1"
+                "--spring.datasource.url=jdbc:h2:mem:" + dbName + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
+                "--spring.liquibase.change-log=" + OwnChangelogFileUrl.forApplication(AuthServiceApplication.class)
         );
         int authPort = Integer.parseInt(authContext.getEnvironment().getProperty("local.server.port"));
 

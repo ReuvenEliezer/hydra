@@ -61,6 +61,38 @@ chmod 600 keys/jwt-private-key-local.pem
 npm --prefix hydra-ui install
 ```
 
+### Baseline your existing local database (existing checkouts only)
+
+As of `006-liquibase-schema-migration`, Liquibase — not Hibernate — owns the schema, and it
+refuses to start against a database it has never seen before: tables exist, but no
+`DATABASECHANGELOG`. Every developer's `~/data/auth_db.mv.db` and `~/data/orders_db.mv.db` was
+built by the old `ddl-auto: update` mechanism, so it is exactly that "legacy" case. The **next**
+`spring-boot:run` against either file fails fast with a message naming
+`hydra.database.baseline.enabled=true` as the fix — this is expected, not a regression.
+
+**Back the files up first**, then do exactly one of:
+
+- **Reconcile once** (keeps your seeded tenant, users, and data):
+
+  ```bash
+  cp ~/data/auth_db.mv.db ~/data/auth_db.mv.db.bak
+  cp ~/data/orders_db.mv.db ~/data/orders_db.mv.db.bak
+  mvn -pl auth-service spring-boot:run -Dspring-boot.run.arguments=--hydra.database.baseline.enabled=true
+  mvn -pl order-service spring-boot:run -Dspring-boot.run.arguments=--hydra.database.baseline.enabled=true
+  ```
+
+  Stop each service once it finishes starting (the flag is a one-time act — never leave it set
+  in a run config or you will reconcile every future startup instead of just this one).
+
+- **Delete and start fresh** (loses local data, including the bootstrap super-admin — bootstrap
+  reruns automatically on an empty database):
+
+  ```bash
+  rm -f ~/data/auth_db.mv.db ~/data/auth_db.lock.db ~/data/orders_db.mv.db ~/data/orders_db.lock.db
+  ```
+
+Either way, run this once per machine, not per checkout — the database lives outside the repo.
+
 ---
 
 ## 2. Start the stack

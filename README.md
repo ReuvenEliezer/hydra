@@ -33,7 +33,20 @@ Java 25 / Spring Boot 4.1 microservices monorepo. Multi-module Maven build with 
 ### Persistence
 
 - Postgres 16 in production/dev (`infra-database`), H2 for tests.
-- Liquibase-managed schema per service (`auth-service`: `db/changelog/`, `order-service`: `changes/`).
+- Liquibase is the sole schema authority. Both services keep their changelog at Liquibase's
+  default classpath location (`db/changelog/db.changelog-master.yaml`) — neither sets
+  `spring.liquibase.change-log`, since the value would only restate the default. Hibernate never
+  generates DDL — `spring.jpa.hibernate.ddl-auto: validate` in every profile of both services,
+  local included. A schema change is always a new changeset appended to the service's
+  changelog, never an entity-mapping change alone; an entity change with no matching changeset
+  fails startup (this is the point — see `infra-database`'s `SchemaMigrationGuard`).
+- `infra-database` also contributes the one-time reconciliation mechanism
+  (`hydra.database.baseline.enabled`/`hydra.database.baseline.tag`) for cutting an
+  already-existing, Hibernate-built database over to Liquibase without re-running or losing its
+  rows. This flag is a deliberate, per-environment, one-time human act at the command line or in
+  an environment variable for that single run — it must never be committed into a profile YAML
+  or a deployment manifest, or "reconcile once" silently becomes "reconcile whatever state you
+  find". See [RUNNING.md](./RUNNING.md) for the local-checkout version of this step.
 
 ### Redis
 

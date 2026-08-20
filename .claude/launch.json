@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hydra-ui-storybook",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "hydra-ui",
+        "run",
+        "storybook",
+        "--",
+        "--no-open"
+      ],
+      "port": 6006
+    },
+    {
+      "name": "hydra-ui-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "hydra-ui",
+        "run",
+        "demo"
+      ],
+      "port": 5173
+    }
+  ]
+}
