@@ -75,22 +75,32 @@ class ConcurrentMigrationTest {
     }
 
     /**
-     * Spring Boot's {@code LoggingApplicationListener} mutates a shared, JVM-wide Logback
-     * {@code LoggerContext} while handling {@code ApplicationEnvironmentPreparedEvent}, with no
-     * synchronization of its own. Two {@code SpringApplication.run()} calls released as close to
-     * simultaneously as possible — the whole point of this test — occasionally race on that
-     * shared state and fail with a {@code ConcurrentModificationException}, before either
-     * context has done anything Liquibase-related. This is a known Spring Boot limitation for
-     * concurrent app bootstraps sharing one JVM, not a defect in the guard or in Liquibase's own
-     * locking (what this test actually verifies) — retrying the whole, idempotent startup once
-     * is the standard, safe way past it.
+     * Two known, unrelated one-time bootstrap races can hit either concurrent
+     * {@code SpringApplication.run()} call, released as close to simultaneously as possible —
+     * the whole point of this test:
+     * <ul>
+     *     <li>Spring Boot's {@code LoggingApplicationListener} mutates a shared, JVM-wide
+     *     Logback {@code LoggerContext} while handling {@code ApplicationEnvironmentPreparedEvent},
+     *     with no synchronization of its own, and can fail with a
+     *     {@code ConcurrentModificationException} before either context has done anything
+     *     Liquibase-related.</li>
+     *     <li>{@code DATABASECHANGELOGLOCK} only serializes changeset application — it can't
+     *     protect the creation of {@code databasechangelog} itself, since that table doesn't
+     *     exist yet on a genuinely empty database. Both instances can race to
+     *     {@code CREATE TABLE public.databasechangelog}, and Postgres's catalog insert into
+     *     {@code pg_type} rejects the loser with
+     *     {@code duplicate key value violates unique constraint "pg_type_typname_nsp_index"}.</li>
+     * </ul>
+     * Neither is a defect in the guard or in Liquibase's own locking (what this test actually
+     * verifies) — retrying the whole, idempotent startup once is the standard, safe way past
+     * both.
      */
     private static ConfigurableApplicationContext withRetryOnLoggingInitRace(
             java.util.function.Supplier<ConfigurableApplicationContext> starter) {
         try {
             return starter.get();
         } catch (RuntimeException e) {
-            if (isConcurrentModificationRace(e)) {
+            if (isConcurrentModificationRace(e) || isChangelogTableCreationRace(e)) {
                 return starter.get();
             }
             throw e;
@@ -100,6 +110,16 @@ class ConcurrentMigrationTest {
     private static boolean isConcurrentModificationRace(Throwable e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof java.util.ConcurrentModificationException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isChangelogTableCreationRace(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && message.contains("pg_type_typname_nsp_index")) {
                 return true;
             }
         }
