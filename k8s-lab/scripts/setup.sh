@@ -91,10 +91,17 @@ fi
 # --- The checkpoints -------------------------------------------------------
 # Each is: name, action, validation. The verdict comes only from the validation.
 
+# Validated with `registered`, NOT `health`. `health` asserts every node is
+# Ready, and nodes do not become Ready until a CNI is running — which is the
+# `cilium` checkpoint, three steps below. Validating this checkpoint with
+# `health` demanded a property that cannot be true yet, and it was masked for
+# as long as checkpoint.sh reported every checkpoint as PASSED.
+# Node readiness is asserted by `platform.sh cilium`, at the moment it becomes
+# achievable; full `health` runs in validate.sh once the environment is up.
 checkpoint_run "cluster" \
   "${S}/cluster.sh create" \
-  "${S}/cluster.sh health --quiet" \
-  "kind cluster '${LAB_CLUSTER}': 1 control-plane + ${KIND_WORKER_COUNT} workers, all Ready"
+  "${S}/cluster.sh registered --quiet" \
+  "kind cluster '${LAB_CLUSTER}': 1 control-plane + ${KIND_WORKER_COUNT} workers registered (Ready comes with the CNI)"
 
 checkpoint_run "namespaces" \
   "${S}/platform.sh namespaces" \

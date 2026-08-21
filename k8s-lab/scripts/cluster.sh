@@ -273,6 +273,63 @@ cmd_status() {
   log_summary
 }
 
+
+# ---------------------------------------------------------------------------
+# registered — what must be true BEFORE a CNI exists (FR-013, FR-014)
+#
+# This is the `cluster` checkpoint's validation, and it exists because `health`
+# cannot be that validation: `health` asserts every node is Ready, and a node
+# does not become Ready until a CNI is running — which happens three
+# checkpoints later, at `cilium`.
+#
+# The `cluster` checkpoint was validated with `health --quiet` and therefore
+# could NEVER have passed on its own terms. Nothing noticed, because
+# checkpoint.sh captured its exit status with `if ! out="$(cmd)"` and recorded
+# every checkpoint as PASSED regardless (see scripts/lib/checkpoint.sh). Fixing
+# that capture is what made this surface, as:
+#
+#     FAIL  only 0/3 nodes Ready
+#     FAIL  scheduler places and completes a probe pod: ... after 120s
+#
+# against a cluster that was in exactly the state it should have been in.
+#
+# So this checks what is genuinely establishable at that point: the cluster
+# exists, the API answers, and every declared node has REGISTERED. Node
+# readiness is asserted by `platform.sh cilium`, which waits for it explicitly
+# and says why, and full `health` runs in `validate.sh` once everything is up.
+# ---------------------------------------------------------------------------
+cmd_registered() {
+  require_kind
+  (( QUIET )) || log_suite "cluster registered (pre-CNI)"
+
+  if ! cluster_exists; then
+    log_fail "cluster '${LAB_CLUSTER}' does not exist" "kind get clusters"
+    log_summary; return 1
+  fi
+  log_pass "cluster '${LAB_CLUSTER}' exists" "kind get clusters"
+
+  if kubectl --context "${LAB_KUBECONTEXT}" cluster-info >/dev/null 2>&1; then
+    log_pass "API server responds" "kubectl cluster-info"
+  else
+    log_fail "API server does not respond" "kubectl cluster-info"
+    log_context "$(docker ps -a --filter "name=${LAB_CLUSTER}-control-plane" --format '{{.Status}}' 2>&1)"
+    log_summary; return 1
+  fi
+
+  local expected actual
+  expected=$(( 1 + KIND_WORKER_COUNT ))
+  actual="$(kubectl --context "${LAB_KUBECONTEXT}" get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$actual" == "$expected" ]]; then
+    log_pass "${actual} nodes registered" "1 control-plane + ${KIND_WORKER_COUNT} workers"
+  else
+    log_fail "expected ${expected} nodes registered, found ${actual}"
+    log_context "$(kubectl --context "${LAB_KUBECONTEXT}" get nodes 2>&1)"
+  fi
+
+  (( QUIET )) || log_info "NotReady here is correct: disableDefaultCNI means no pod network until Cilium."
+  log_summary
+}
+
 # ---------------------------------------------------------------------------
 # health — whether it works (FR-012)
 # ---------------------------------------------------------------------------
@@ -357,6 +414,7 @@ case "${1:-status}" in
   delete)   cmd_delete ;;
   recreate) cmd_recreate ;;
   status)   cmd_status ;;
-  health)   cmd_health ;;
-  *) log_error "usage: cluster.sh {create|delete|recreate|status|health}"; exit 2 ;;
+  health)     cmd_health ;;
+  registered) cmd_registered ;;
+  *) log_error "usage: cluster.sh {create|delete|recreate|status|registered|health}"; exit 2 ;;
 esac
