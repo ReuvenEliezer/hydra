@@ -1,0 +1,140 @@
+# ---------------------------------------------------------------------------
+# Prometheus (FR-077, contracts/observability-contract.md).
+#
+# Scrapes three sources, and each covers a class of signal the others cannot:
+#
+#   OTel Collector   application RED metrics and JVM runtime metrics, produced
+#                    by the Java agent. Neither service emits these itself —
+#                    neither has a Micrometer registry or a metrics endpoint
+#                    (research.md A6) — so this is the ONLY source for them.
+#   cAdvisor         container CPU and memory as the kernel sees it. The JVM's
+#                    view of its own heap and the container's memory are
+#                    different numbers, and docs/memory.md is about why.
+#   kube-state       replica counts, pod restarts, HPA state. Cluster intent
+#                    and status, which no in-process agent can see.
+# ---------------------------------------------------------------------------
+
+server:
+  # A lab retention window. Long enough to compare benchmark runs within a
+  # session, short enough not to fill a workstation disk.
+  retention: 24h
+
+  persistentVolume:
+    # emptyDir. Stated as a deliberate choice with a consequence: metrics do
+    # not survive a Prometheus restart. A benchmark that must be comparable
+    # across cluster recreations writes its own numbers into
+    # results/benchmark/ (FR-106) rather than relying on this.
+    enabled: false
+
+  global:
+    # 15s, not the 1m default. A load test that lasts two minutes produces
+    # eight data points at 1m and thirty-two at 15s, and autoscaling behaviour
+    # is invisible at eight.
+    scrape_interval: 15s
+    evaluation_interval: 15s
+
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits:   {memory: 2Gi}
+
+  # Reachable from Grafana in-cluster only. Grafana is the single UI (FR-088).
+  service:
+    type: ClusterIP
+
+# --- Sub-charts ------------------------------------------------------------
+kube-state-metrics:
+  # Replica counts, restart counts and HPA state (FR-077). Not optional: the
+  # RED dashboard's replica panel and the scaling test both read from here.
+  enabled: true
+
+prometheus-node-exporter:
+  # Node-level CPU, memory, disk and network. On kind these describe the
+  # *container* the node runs in rather than the workstation, which is a real
+  # distinction the benchmark's limitations section has to state (FR-106).
+  enabled: true
+
+prometheus-pushgateway:
+  # Not installed. A pushgateway exists for batch jobs that die before a scrape;
+  # nothing here is that shape, and an unused component is one more thing whose
+  # absence has to be explained during a dump.
+  enabled: false
+
+alertmanager:
+  # Deliberately absent. FR-077 asks for signals to be collected and visible;
+  # nothing in this feature asks for alert routing, and an Alertmanager with no
+  # receivers configured is a component that looks like alerting and does none.
+  enabled: false
+
+# --- Scrape configuration --------------------------------------------------
+serverFiles:
+  prometheus.yml:
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # THE application-metrics source. Everything the Java agent produces
+      # arrives here.
+      - job_name: otel-collector
+        # honor_labels so the collector's k8sattributes-derived labels
+        # (namespace, pod, deployment) survive rather than being overwritten by
+        # the scrape target's own.
+        honor_labels: true
+        static_configs:
+          - targets: ["otel-collector-opentelemetry-collector.hydra-obs:8889"]
+
+      # Container CPU and memory, via the kubelet's cAdvisor endpoint.
+      - job_name: kubernetes-cadvisor
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # The kubelet's serving certificate is signed for its node name and
+          # addressed here by cluster IP, so verification cannot succeed. This
+          # is the standard kind/kubeadm situation; recorded rather than left as
+          # an unexplained `true`, and it is one of the differences
+          # docs/production-mapping.md lists as not transferring.
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+        metric_relabel_configs:
+          # cAdvisor emits a very large series set. Keeping only what the
+          # dashboards read is not tidiness — an unfiltered cAdvisor scrape at
+          # 15s is the single biggest memory consumer in this stack, and it
+          # crowds out the metrics the lab exists to show.
+          - source_labels: [__name__]
+            regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_usage_bytes|spec_memory_limit_bytes|spec_cpu_quota|network_receive_bytes_total|network_transmit_bytes_total)'
+            action: keep
+
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets: ["prometheus-kube-state-metrics.hydra-obs:8080"]
+
+      # Cilium's own metrics — datapath drops, policy verdicts, Envoy stats.
+      # Present because a network fault that shows up as an application error
+      # is diagnosed here and nowhere else.
+      - job_name: cilium
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [kube-system]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+            regex: cilium|cilium-envoy
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: (\d+)
+            action: keep
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            target_label: __address__
+            replacement: $1:$2

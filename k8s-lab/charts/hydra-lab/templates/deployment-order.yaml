@@ -1,0 +1,167 @@
+{{/*
+  order-service Deployment (FR-043..FR-046, FR-057, FR-058, FR-061..FR-065).
+
+  Identical in shape to deployment-auth.yaml. It differs in exactly four ways,
+  and each is worth naming rather than leaving to a diff:
+
+    1. No signing key is mounted. order-service VERIFIES tokens; it does not
+       issue them, so it needs the public key set, which it fetches over the
+       network — not the private key.
+
+    2. AUTH_SERVICE_URL resolves auth-service through CLUSTER DNS BY SERVICE
+       NAME (FR-045), set in values.yaml. Never a pod address: pod addresses
+       change on every restart, and using one produces an outage on the next
+       auth-service rollout that presents as a JWKS failure.
+
+    3. AUTH_SERVICE_ISSUER stays an OPAQUE IDENTIFIER (FR-046). In this
+       service's configuration `jwk-set-uri` and `issuer-uri` sit adjacent, and
+       conflating them is an easy, silent mistake — the issuer is an identity
+       claim to be compared, not a location to be fetched.
+
+    4. It has its own database, so the migration Job runs once per service per
+       database (D6).
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+    {{- include "hydra-lab.selector" (dict "name" "order-service") | nindent 4 }}
+spec:
+  replicas: {{ .Values.order.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # SC-009: new pods Ready BEFORE old ones terminate. maxUnavailable: 0 is
+      # what makes "zero failed requests during a rollout" achievable rather
+      # than aspirational.
+      maxUnavailable: {{ .Values.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.rollingUpdate.maxSurge }}
+  selector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "order-service") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hydra-lab.labels" . | nindent 8 }}
+        {{- include "hydra-lab.selector" (dict "name" "order-service") | nindent 8 }}
+      annotations:
+        # Roll the pods when the mounted configuration changes. Without this a
+        # ConfigMap edit updates the file and the JVM never re-reads it, so the
+        # cluster's state and the running behaviour silently disagree.
+        hydra-lab/config-checksum: {{ include (print $.Template.BasePath "/configmap-app.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: order-service
+      automountServiceAccountToken: false
+      # Sized for in-flight requests to drain. Paired with the exec-form
+      # entrypoint: without exec form the JVM never receives SIGTERM and this
+      # becomes a fixed delay before a kill, on every rollout (FR-058).
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        # FR-065: spread across the workers, so losing one node does not lose
+        # every replica. ScheduleAnyway rather than DoNotSchedule — on a
+        # workstation a hard constraint turns a capacity shortfall into a
+        # permanently Pending pod, which is a worse failure than an uneven spread
+        # and one that reads as a scheduling bug.
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "hydra-lab.selector" (dict "name" "order-service") | nindent 14 }}
+      {{- end }}
+      securityContext:
+        # FR-058. Explicit numeric ids MATCHING THE IMAGE — the Dockerfile
+        # creates uid/gid 10001 deliberately rather than letting `adduser -S`
+        # pick one, because an implicitly assigned id does not survive a base
+        # image bump and the resulting permission error names nothing.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: order-service
+          image: {{ include "hydra-lab.image" (dict "svc" .Values.order "root" $) }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: {{ .Values.order.port }}, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+            # A JVM writes to /tmp (perf data, temp files) and nothing else on
+            # the root filesystem. Making the root read-only and giving /tmp an
+            # emptyDir is therefore free, and it turns "an attacker with code
+            # execution can drop a binary" into "an attacker with code execution
+            # can write to a tmpfs that vanishes on restart".
+            readOnlyRootFilesystem: true
+          env:
+            {{- include "hydra-lab.appEnv" (dict "svc" .Values.order "root" $ "name" "order-service") | nindent 12 }}
+            {{- if .Values.readinessToggle.enabled }}
+            # FR-064: a controlled way to force this replica unready, so the
+            # readiness drill can observe traffic stopping while the process
+            # keeps running. OFF by default and gated behind a non-production
+            # profile — an endpoint that can remove a replica from service is
+            # not something to leave reachable, and a drill that enables its own
+            # safety gate is not testing what the lab ships.
+            - name: HYDRA_LAB_READINESS_TOGGLE
+              value: "true"
+            {{- end }}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          # FR-063: three probes, three questions.
+          startupProbe:
+            # Until this succeeds, the liveness probe does not run at all. That
+            # is the whole point: a cold JVM with an agent attached can take
+            # longer than any sane liveness threshold, and without a startup
+            # probe the pod is killed mid-boot, forever.
+            httpGet: {path: {{ .Values.probes.startup.path }}, port: http}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          readinessProbe:
+            # "Can this replica serve traffic right now." Includes db and redis
+            # (see configmap-app.yaml), because a replica that cannot reach
+            # either will reject every request it is sent.
+            httpGet: {path: {{ .Values.probes.readiness.path }}, port: http}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            # "Is this process broken beyond recovery." Deliberately depends on
+            # nothing external — a liveness probe that checks the database turns
+            # a database blip into a rolling restart of every replica.
+            #
+            # TCP rather than HTTP because /actuator/health/liveness returns 401
+            # in this repository: SecurityCommons permits the exact path
+            # /actuator/health and nothing beneath it. See values.yaml for the
+            # measurements and docs/known-gaps.md for the one-line source fix
+            # this feature is not allowed to make.
+            tcpSocket: {port: http}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          lifecycle:
+            preStop:
+              # Endpoint removal and SIGTERM race: the kubelet sends SIGTERM at
+              # the same moment the endpoint controller starts removing this pod
+              # from the EndpointSlice, and Envoy may not have noticed yet. A
+              # short sleep here lets propagation win, which is the difference
+              # between a clean rollout and a handful of connection resets.
+              # This is a deliberate fixed delay in a *shutdown* path, not a
+              # readiness signal — FR-015 governs the latter.
+              sleep:
+                seconds: 5
+          resources:
+            {{- toYaml .Values.order.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: {name: hydra-lab-config}
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,12 @@
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.tmp
+*.bak
+*.orig
+.idea/
+*.tmproj
+# Never package generated TLS material or run output with the chart.
+.certs/
+results/

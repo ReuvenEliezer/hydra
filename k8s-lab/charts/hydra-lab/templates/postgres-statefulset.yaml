@@ -1,0 +1,131 @@
+{{/*
+  Postgres (D14, FR-051, FR-053).
+
+  The SAME pinned image as the repository's own docker-compose.yml. Version
+  parity with local development is worth more than chart convenience: a lab
+  running a different Postgres than `docker compose up` is measuring a different
+  system, and any difference it finds is then ambiguous.
+
+  Bitnami's chart was rejected for a second reason beyond parity — its free
+  image catalogue has been restricted, and a lab whose reproducibility depends
+  on a vendor's registry policy is not reproducible.
+
+  One database per service, created by an init script. Two logical databases in
+  one instance is a lab compromise, and docs/production-mapping.md says so:
+  production would separate them, if only so one service's load cannot starve
+  the other's connections.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+data:
+  00-databases.sql: |
+    -- Runs once, on first initialisation of an empty data directory.
+    -- Idempotent anyway, because a re-created PVC would replay it.
+    SELECT 'CREATE DATABASE {{ .Values.auth.database }}'
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ .Values.auth.database }}')\gexec
+    SELECT 'CREATE DATABASE {{ .Values.order.database }}'
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ .Values.order.database }}')\gexec
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  # Headless: the StatefulSet's single pod is addressed directly, and there is
+  # no load balancing decision to make with one replica. A ClusterIP here would
+  # add a hop that hides which pod answered.
+  clusterIP: None
+  selector:
+    {{- include "hydra-lab.selector" (dict "name" "postgres" "component" "datastore") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+    {{- include "hydra-lab.selector" (dict "name" "postgres" "component" "datastore") | nindent 4 }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "postgres" "component" "datastore") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hydra-lab.labels" . | nindent 8 }}
+        {{- include "hydra-lab.selector" (dict "name" "postgres" "component" "datastore") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 70          # the postgres user in the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: {{ required "postgres image is required — app.sh passes it from versions.env (FR-006)" .Values.postgres.image | quote }}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.postgres }}, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.postgres }}, key: password}}
+            - name: POSTGRES_DB
+              value: postgres
+            # The alpine image's default data directory is the mount point
+            # itself, and initdb refuses a non-empty directory. A subdirectory
+            # is the documented way around the lost+found a real volume leaves
+            # behind; hostPath has no lost+found, but keeping the production
+            # shape costs nothing and avoids a surprise on a real PV.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+          readinessProbe:
+            # A REAL check (D14). `pg_isready` asks the server whether it is
+            # accepting connections. A TCP port check would pass while Postgres
+            # was still replaying WAL and rejecting every connection — and every
+            # dependent pod would then crash-loop against a "ready" database.
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres -h 127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres -h 127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+      volumes:
+        - name: init
+          configMap: {name: postgres-init}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # kind's default StorageClass is a hostPath provisioner. That is a real
+        # divergence from production, not a detail: no replication, no snapshot,
+        # and the data is gone with the node. docs/production-mapping.md states
+        # which properties do not transfer.
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}

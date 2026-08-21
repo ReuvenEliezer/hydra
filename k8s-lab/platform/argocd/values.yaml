@@ -1,0 +1,110 @@
+# ---------------------------------------------------------------------------
+# Argo CD (D15, FR-083, FR-086, FR-088).
+#
+# Chosen over Flux for one concrete reason, and it is not a features argument:
+# FR-088 requires a DELIVERY CONSOLE reachable by its own access operation, and
+# Argo CD ships one. Flux would mean adding a separate UI, which is a component
+# no requirement asks for.
+#
+# It reconciles from a bare git repository created inside the lab, so the
+# delivery loop is demonstrable with no network, no hosting account and no
+# credentials (scripts/gitops.sh).
+# ---------------------------------------------------------------------------
+
+global:
+  # Sized for a workstation. Argo CD's defaults assume a cluster with headroom.
+  domain: argocd.hydra-lab.local
+
+configs:
+  params:
+    # No TLS on the server: it is reached through a port-forward from the
+    # workstation, and a self-signed certificate on top of a port-forward adds a
+    # browser warning and nothing else. `make console-delivery` documents this.
+    server.insecure: true
+    # One replica of each controller. Not resilience — lab scale.
+    controller.status.processors: "5"
+    controller.operation.processors: "2"
+    # 30s instead of the 3m default: the delivery-loop demonstration
+    # (tests/integration/gitops-converge.sh) has to observe convergence inside a
+    # test's lifetime, and three minutes of waiting teaches nothing about GitOps.
+    timeout.reconciliation: 30s
+
+  cm:
+    # Local repositories are what the lab reconciles from.
+    application.instanceLabelKey: argocd.argoproj.io/instance
+    # Show the diff in the UI for the resources the lab actually manages.
+    resource.compareoptions: |
+      ignoreAggregatedRoles: true
+
+  rbac:
+    # Anonymous read/write in a loopback-only console. Not a security posture —
+    # an admin password in a values file would be a credential in the tracked
+    # tree (FR-053, FR-085), and this way there is nothing to leak.
+    # docs/production-mapping.md maps this to real SSO with scoped projects.
+    policy.default: role:admin
+
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits:   {memory: 512Mi}
+
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits:   {memory: 1Gi}
+
+repoServer:
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits:   {memory: 1Gi}
+  # ------------------------------------------------------------------------
+  # The lab's bare git repository, mounted from the node.
+  #
+  # The repo-server is a POD. It cannot read a file:// path on the workstation,
+  # and pointing it at one fails as "repository not found" — a message that
+  # sends you looking for a missing repository rather than a filesystem
+  # boundary. cluster/kind-cluster.yaml bind-mounts the lab's .gitops-remote
+  # directory into every node at /gitops-remote; this mounts that into the pod.
+  #
+  # No git server, no credentials, no network — which is what keeps the offline
+  # steady state D8 assumes intact.
+  #
+  # Read-only: Argo CD only ever fetches. Pushes come from the workstation,
+  # which writes to the same directory directly.
+  volumes:
+    - name: gitops-remote
+      hostPath:
+        path: /gitops-remote
+        type: Directory
+  volumeMounts:
+    - name: gitops-remote
+      mountPath: /gitops-remote
+      readOnly: true
+
+applicationSet:
+  # Not installed. ApplicationSets generate Applications from a generator; the
+  # lab has exactly one Application, so this would be a component whose absence
+  # needs no explanation and whose presence would.
+  enabled: false
+
+notifications:
+  enabled: false
+
+dex:
+  # No SSO provider to integrate with locally.
+  enabled: false
+
+redis:
+  # Argo CD's own cache. Deliberately NOT pointed at the lab's Redis in
+  # hydra-data: sharing them would mean the cache-down drill (FR-056) takes the
+  # delivery control plane out at the same time, and the drill would then be
+  # measuring two failures at once.
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits:   {memory: 256Mi}

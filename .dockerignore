@@ -1,0 +1,41 @@
+# Build context hygiene for auth-service/Dockerfile and order-service/Dockerfile.
+#
+# The image builds copy whole module trees. Without this file the host's own
+# `target/` directories enter the context, and a build could silently inherit
+# artifacts the host produced — which is exactly the clean-state guarantee
+# FR-018 exists to make. Keeping them out is part of that guarantee, not a
+# build-speed optimisation.
+target/
+*/target/
+*.class
+
+# Never let signing material reach a build context.
+keys/
+*.pem
+*.p12
+.env
+k8s-lab/.certs/
+k8s-lab/results/
+
+# Frontend and tooling the service images have no use for.
+node_modules/
+hydra-ui/
+dist/
+build/
+coverage/
+storybook-static/
+
+# VCS and IDE
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+
+# Docs and specs — not build inputs.
+specs/
+*.md
+!README.md
+
+.DS_Store
+*.log

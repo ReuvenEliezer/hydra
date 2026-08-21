@@ -1,0 +1,276 @@
+{{/*
+  NetworkPolicy (FR-054, FR-073, contracts/platform-topology.md).
+
+  Default-deny in hydra-app and hydra-data, then EXACTLY the permitted edges and
+  nothing else.
+
+  The point worth holding on to: this file is not the control. A policy that has
+  never been tested against a real caller is a YAML file. The control is
+  tests/failure/network-policy.sh, which stands up a genuinely unauthorised pod
+  and has it attempt Postgres, Redis and auth-service — each must fail 100% of
+  the time while the authorised equivalents succeed 100% of the time, repeatably
+  (SC-013).
+
+  Note on shape: these are standard Kubernetes NetworkPolicies, not
+  CiliumNetworkPolicies. The standard resource expresses everything the topology
+  contract needs, and Cilium enforces it natively — so reaching for the vendor
+  CRD would trade portability for nothing. Where a Cilium CRD IS needed (the
+  Envoy listener overrides in D12/D13), it is used deliberately and said so.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+
+# ===========================================================================
+# hydra-app: default deny, both directions
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  # Empty selector = every pod in the namespace.
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  # No rules at all: everything is denied until an explicit allow below adds it
+  # back. Policies are additive, so this and the allows below combine.
+---
+# Every workload needs DNS, and this is the allow people forget. Without it the
+# symptom is not "denied" — it is a name-resolution timeout, which reads as a
+# CoreDNS fault and sends the investigation to entirely the wrong place.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# The gateway reaching the services — and THE ONE RULE IN THIS FILE THAT IS NOT
+# A STANDARD NetworkPolicy, for a reason worth writing down.
+#
+# The obvious form is a standard NetworkPolicy allowing ingress from the
+# kube-system namespace, since Cilium's Envoy runs there as Cilium's data plane.
+# It was written that way first, and it does not work. Every request through the
+# gateway came back:
+#
+#   upstream connect error or disconnect/reset before headers.
+#   reset reason: connection timeout
+#
+# while the routes reported Accepted and the pods were healthy. Replacing the
+# rule with a temporary allow-all made it work instantly, which located the
+# fault in the policy rather than in the gateway.
+#
+# The cause: when Cilium's Envoy proxies a request to a backend, the connection
+# does NOT carry the identity of a kube-system pod. It carries Cilium's special
+# `reserved:ingress` identity. A standard NetworkPolicy has no way to name that
+# — namespaceSelector and podSelector both match real pods — so the traffic
+# falls through to default-deny.
+#
+# `fromEntities: [ingress]` is the only correct expression, and it exists only
+# in CiliumNetworkPolicy. This is a deliberate, narrow use of the vendor CRD,
+# in the same category as the Envoy overrides D12/D13 permit. FR-029 is
+# untouched: still one Cilium GatewayClass, still no standalone controller.
+#
+# Everything else in this file stays a standard NetworkPolicy, because
+# everything else is expressible as one.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-to-services
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [auth-service, order-service]}
+  ingress:
+    - fromEntities:
+        # Cilium's ingress/gateway proxy. NOT `world` and NOT `all` — this
+        # permits the gateway datapath specifically, and nothing else gains
+        # access by being outside the cluster.
+        - ingress
+      toPorts:
+        - ports:
+            - {port: "{{ .Values.auth.port }}", protocol: TCP}
+            - {port: "{{ .Values.order.port }}", protocol: TCP}
+---
+# Callers of auth-service inside the namespace. One direction only: auth-service
+# has no reason to call order-service, and permitting it would make a future
+# mistake invisible.
+#
+#   order-service  the JWKS fetch over cluster DNS (FR-045)
+#   hydra-fixture  the anti-drift guard. D7 requires the fixture Job to end by
+#                  performing ONE REAL SIGN-IN, because a fixture can apply
+#                  perfectly and still produce accounts that cannot authenticate.
+#                  That check is an HTTP call to auth-service, so it needs a
+#                  network path — and it did not have one. The Job hung in its
+#                  readiness wait for its full budget while all three replicas
+#                  were healthy, because the policy silently dropped the
+#                  connection. contracts/platform-topology.md's caller table did
+#                  not list this edge; it does now.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-auth-callers
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "auth-service") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "hydra-lab.selector" (dict "name" "order-service") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hydra-fixture
+      ports:
+        - {protocol: TCP, port: {{ .Values.auth.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [auth-service, order-service, hydra-migrate, hydra-fixture]}
+  policyTypes: [Egress]
+  egress:
+    # To the datastores.
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.global.dataNamespace }}}
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 6379}
+    # order-service -> auth-service, same namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hydra-lab.selector" (dict "name" "auth-service") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.auth.port }}}
+    {{- if .Values.observability.agentEnabled }}
+    # To the OTel collector. Without this allow the agent retries OTLP export
+    # forever and the only symptom is an empty dashboard — the service works
+    # perfectly and observes nothing, which is a genuinely confusing failure.
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.global.obsNamespace }}}
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+    {{- end }}
+
+# ===========================================================================
+# hydra-data: default deny, then only the four permitted callers
+# ===========================================================================
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-callers
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "postgres" "component" "datastore") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # Both services AND the migration/fixture Jobs. The Jobs matter: they
+        # run before any Deployment, so if they were not listed the migration
+        # would fail first and the diagnosis would start at Postgres.
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.global.appNamespace }}}
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [auth-service, order-service, hydra-migrate, hydra-fixture]
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-callers
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "redis" "component" "cache") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # Redis is narrower than Postgres on purpose: the two services use it
+        # for rate limiting and refresh-token rotation. The Jobs have no reason
+        # to touch it, so they are not permitted to.
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.global.appNamespace }}}
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [auth-service, order-service]
+      ports:
+        - {protocol: TCP, port: 6379}
+{{- end }}

@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------------------
+# kind cluster topology (D1, D8).
+#
+# THIS IS A TEMPLATE, NOT A FINISHED CONFIG. `scripts/cluster.sh` renders it:
+# it substitutes ${...} from versions.env and expands the WORKER_NODES marker
+# into KIND_WORKER_COUNT worker entries. Passing this file to `kind create`
+# directly will not work, and that is deliberate — the worker count and the
+# node image are version-matrix values, and a config that carried its own
+# copies of them would be the drift SC-022 forbids.
+#
+# Three settings here are load-bearing:
+#
+#   disableDefaultCNI: true
+#       kind's default CNI is removed so Cilium is genuinely the sole network
+#       provider (FR-011). Nodes stay NotReady until Cilium is installed —
+#       that is expected, not a fault, and cluster.sh says so.
+#
+#   kubeProxyMode: none
+#       Cilium's kube-proxy replacement (FR-023) is only exercised if there is
+#       no kube-proxy to layer on top of. Leaving kube-proxy running and
+#       enabling the replacement produces a cluster where neither path is the
+#       one under test.
+#
+#   extraPortMappings 443/80
+#       The one deterministic exposure mechanism (FR-030). The host port is
+#       bound to a *fixed* NodePort declared in versions.env, not to a
+#       runtime-allocated one, so the address a developer types is knowable
+#       before the cluster exists. This is also why MetalLB and
+#       cloud-provider-kind were rejected (D8): on macOS the Docker bridge is
+#       not routable from the host, so an allocated LoadBalancer address is
+#       unreachable no matter how correct it looks in `kubectl get svc`.
+# ---------------------------------------------------------------------------
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ${KIND_CLUSTER_NAME}
+
+networking:
+  # Cilium is the only CNI (FR-011, D4).
+  disableDefaultCNI: true
+  # Required for Cilium's kube-proxy replacement to be the real datapath (FR-023).
+  kubeProxyMode: "none"
+  apiServerAddress: "127.0.0.1"
+
+nodes:
+  - role: control-plane
+    image: ${KIND_NODE_IMAGE}
+    extraMounts:
+      # Argo CD's repo-server is a POD. It cannot see a file:// path on the
+      # workstation, and pointing it at one fails with a message that names the
+      # wrong thing:
+      #
+      #   Failed to load target state: failed to generate manifest for source
+      #   1 of 1: rpc error: code = Unknown desc = failed to list refs:
+      #   repository not found
+      #
+      # "repository not found" reads as a bad URL or a missing repo. The repo
+      # was there and the URL was right — it simply was not on that filesystem.
+      #
+      # Mounting the lab's bare repository into the node makes it reachable
+      # from inside the cluster with no git server, no credentials and no
+      # network, which keeps the offline steady state D8 assumes. The Argo CD
+      # repo-server then mounts it as a hostPath (platform/argocd/values.yaml).
+      - hostPath: ${LAB_GITOPS_REMOTE_DIR}
+        containerPath: /gitops-remote
+        readOnly: false
+    kubeadmConfigPatches:
+      # Label the control-plane node so the Gateway's NodePort Service can be
+      # pinned to it — the extraPortMappings below only exist on this node, so
+      # traffic must arrive here.
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "hydra-lab/gateway-node=true"
+    extraPortMappings:
+      # host 443 -> the Gateway's fixed HTTPS NodePort
+      - containerPort: ${GATEWAY_NODEPORT_HTTPS}
+        hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      # host 80 -> the HTTP listener. TLS is blocking with no plain-HTTP
+      # fallback (FR-032); this mapping exists so a plain-HTTP request gets a
+      # redirect rather than a connection refused, which is a much clearer
+      # thing to debug.
+      - containerPort: ${GATEWAY_NODEPORT_HTTP}
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+# WORKER_NODES — expanded by scripts/cluster.sh into ${KIND_WORKER_COUNT} entries.

@@ -1,0 +1,518 @@
+{
+  "uid": "hydra-runtime",
+  "title": "Hydra \u2014 runtime, resources and scaling",
+  "tags": [
+    "hydra-lab",
+    "runtime",
+    "tuning"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Why RED is repeated on this board",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**This board exists for resource tuning and benchmarking (FR-078), which is why the RED row is duplicated at the bottom rather than left on its own board.**\n\nTuning a memory limit means reading heap, GC, container memory *and* latency at the same instant. Splitting them across two boards turns that into guesswork between screens \u2014 you end up correlating by memory of what the other tab looked like.\n\n**The container memory limit is not the maximum heap size.** Heap, class metadata, code cache, direct buffers, thread stacks and native allocations all live inside the limit. See `docs/memory.md` before concluding a pod needs more memory.\n\nBefore changing any request or limit, read `docs/resource-tuning.md` \u2014 in particular the rule that lowering a limit must be supported by measurement and must **not** be justified by the choice of concurrency model."
+      }
+    },
+    {
+      "id": 10,
+      "title": "JVM heap used vs committed",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (jvm_memory_used_bytes{jvm_memory_type=\"heap\"})",
+          "legendFormat": "used {{service}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (service) (jvm_memory_committed_bytes{jvm_memory_type=\"heap\"})",
+          "legendFormat": "committed {{service}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (service) (jvm_memory_limit_bytes{jvm_memory_type=\"heap\"})",
+          "legendFormat": "max {{service}}",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "description": "Agent runtime metrics. 'Committed' is what the JVM has taken from the OS; 'used' is what is live in it. A pod is OOMKilled on committed + non-heap, never on used."
+    },
+    {
+      "id": 11,
+      "title": "JVM non-heap (metaspace, code cache, direct)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, jvm_memory_pool_name) (jvm_memory_used_bytes{jvm_memory_type=\"non_heap\"})",
+          "legendFormat": "{{service}} {{jvm_memory_pool_name}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "description": "The memory people forget. Class metadata and the code cache grow with the application, not with the workload, and they are inside the container limit."
+    },
+    {
+      "id": 12,
+      "title": "GC collections per second",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, jvm_gc_name) (rate(jvm_gc_duration_seconds_count[1m]))",
+          "legendFormat": "{{service}} {{jvm_gc_name}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "description": "Collection frequency. Read with the panel to the right: frequent-and-short and rare-and-long are different problems."
+    },
+    {
+      "id": 13,
+      "title": "GC pause duration",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, service, jvm_gc_name) (rate(jvm_gc_duration_seconds_bucket[1m])))",
+          "legendFormat": "p99 {{service}} {{jvm_gc_name}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (service) (rate(jvm_gc_duration_seconds_sum[1m]))",
+          "legendFormat": "time in GC {{service}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "description": "'Time in GC' is seconds of GC per second of wall clock \u2014 the number to compare against p99 latency on the row below. ZGC is in use; docs/jvm-flags.md explains why that choice is deliberately NOT made by this feature."
+    },
+    {
+      "id": 14,
+      "title": "Container memory vs limit",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"hydra-app\", container!=\"\"})",
+          "legendFormat": "{{pod}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (pod) (container_spec_memory_limit_bytes{namespace=\"hydra-app\", container!=\"\"})",
+          "legendFormat": "limit {{pod}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "description": "What the kernel sees, which is what the OOM killer acts on. Compare against the JVM heap panel: the gap is everything docs/memory.md accounts for."
+    },
+    {
+      "id": 15,
+      "title": "Container CPU vs request",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"hydra-app\", container!=\"\"}[1m]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "description": "In cores. There is deliberately no CPU limit on these workloads: a CPU limit throttles rather than terminates, and CFS throttling on a JVM produces latency spikes indistinguishable from GC pauses \u2014 which would corrupt the benchmark. The HPA targets utilisation of the REQUEST."
+    },
+    {
+      "id": 16,
+      "title": "Replica count and HPA state",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "kube_deployment_status_replicas_available{namespace=\"hydra-app\"}",
+          "legendFormat": "available {{deployment}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "kube_deployment_spec_replicas{namespace=\"hydra-app\"}",
+          "legendFormat": "desired {{deployment}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"hydra-app\"}",
+          "legendFormat": "hpa wants {{horizontalpodautoscaler}}",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "description": "Driven by real observed metrics \u2014 nothing in this lab simulates a replica change (FR-070). If 'hpa wants' is flat while load rises, check the HPA's ScalingActive condition: no metrics is a different failure from no headroom (FR-072)."
+    },
+    {
+      "id": 17,
+      "title": "Pod restarts",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"hydra-app\"})",
+          "legendFormat": "{{pod}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"hydra-data\"})",
+          "legendFormat": "{{pod}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "description": "A rising line here during a drill is the drill working. A rising line otherwise is a liveness probe killing a healthy-but-slow pod \u2014 which is why liveness depends on nothing external."
+    },
+    {
+      "id": 18,
+      "title": "RED \u2014 rate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(http_server_request_duration_seconds_count[1m]))",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "title": "RED \u2014 5xx vs 429 (never summed)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[1m]))",
+          "legendFormat": "5xx {{service}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=\"429\"}[1m]))",
+          "legendFormat": "429 {{service}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "description": "FR-079. Same split as the RED board: a throttled request is a control working, not a failure."
+    },
+    {
+      "id": 20,
+      "title": "RED \u2014 latency p95 / p99",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_server_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 {{service}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(http_server_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p99 {{service}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

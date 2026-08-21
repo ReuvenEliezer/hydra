@@ -1,0 +1,300 @@
+# ---------------------------------------------------------------------------
+# hydra-lab — base values (FR-084).
+#
+# Everything the chart exposes, in one file, with the reasoning attached where a
+# value is a decision rather than a default.
+#
+# READ THIS FIRST: the resource requests and limits below are STARTING POINTS,
+# not measured settings (FR-062). They were chosen to fit a workstation, not
+# derived from observation. docs/resource-tuning.md describes how to revise them
+# from measurement, and states the rule that matters: lowering a limit must be
+# supported by measurement and must NOT be justified by the choice of
+# concurrency model.
+# ---------------------------------------------------------------------------
+
+global:
+  # Passed at deploy time by scripts/app.sh from the version matrix and the
+  # published tag. Neither has a default here — see the imageTag note below.
+  imageRegistry: "localhost:5001/hydra"
+  # REQUIRED. Revision-derived and immutable (FR-017). _helpers.tpl fails the
+  # render if it is missing or is a moving reference; a chart that quietly
+  # defaults to `latest` makes an un-diagnosable pod.
+  imageTag: ""
+
+  appNamespace: hydra-app
+  dataNamespace: hydra-data
+  obsNamespace: hydra-obs
+
+  # The base domain tenants sit one label in front of. `TENANT_BASE_DOMAINS`
+  # is empty by default in both services and resolves nothing when unset —
+  # tenant resolution fails closed, which is correct and also means forgetting
+  # this value produces "unknown tenant" for every request.
+  baseDomain: localhost
+
+# --- Secrets: names only, never values ------------------------------------
+# Created out of band by scripts/platform.sh at setup time. The tracked tree
+# carries names (FR-053, FR-076, FR-085); `git grep` over it finds no secret.
+secrets:
+  postgres: hydra-postgres-credentials
+  redis: hydra-redis-credentials
+  # The RSA signing key, mounted as a file and read via jwt.private-key-path by
+  # LocalKeyProvider under the `test` profile. Every auth-service replica mounts
+  # the SAME Secret, which is what makes FR-047 — a token issued by one replica
+  # validates against the key set published by any other — true by construction
+  # rather than by coincidence.
+  jwtKey: hydra-jwt-signing-key
+  tls: hydra-lab-tls
+
+# --- auth-service ----------------------------------------------------------
+auth:
+  imageName: auth-service
+  database: auth_db
+  port: 8083
+  # 3 replicas. Never 1: FR-069 needs genuine multi-instance behaviour, and the
+  # two properties Hydra's design depends on and has never observed — atomic
+  # concurrent credential rotation (SC-010) and cross-replica rate limiting
+  # (SC-011) — are unobservable on a single replica.
+  replicas: 3
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits:   {memory: 1Gi}
+    # NOTE: no CPU limit, and that is deliberate. A CPU limit throttles rather
+    # than terminates, and CFS throttling on a JVM produces latency spikes that
+    # look exactly like GC pauses in a benchmark. Requests give the scheduler
+    # what it needs; a limit would corrupt the measurement US6 exists to take.
+    # docs/resource-tuning.md carries the full argument.
+  extraEnv: {}
+
+# --- order-service ---------------------------------------------------------
+order:
+  imageName: order-service
+  database: order_db
+  port: 8082
+  replicas: 3
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits:   {memory: 1Gi}
+  extraEnv:
+    # FR-045: resolved through CLUSTER DNS BY SERVICE NAME. Never a pod address —
+    # pod addresses change on every restart, and using one produces an outage on
+    # the next rollout that looks like a JWKS problem.
+    AUTH_SERVICE_URL: "http://auth-service.hydra-app.svc.cluster.local:8083"
+    # FR-046: an OPAQUE IDENTIFIER, never turned into a resolvable address.
+    # In order-service's configuration `jwk-set-uri` and `issuer-uri` sit
+    # adjacent, and conflating them is an easy, silent mistake: the issuer is an
+    # identity claim, not a location. This value is exactly the string
+    # auth-service puts in the `iss` claim.
+    AUTH_SERVICE_ISSUER: "hydra-auth-service"
+
+# --- Probes (FR-063, contracts/platform-topology.md) -----------------------
+#
+# THE HEALTH-GROUP ENDPOINTS ARE NOT REACHABLE IN THIS REPOSITORY, and that is
+# a finding rather than an oversight. Measured, not assumed:
+#
+#   GET /actuator/health              -> 200
+#   GET /actuator/health/readiness    -> 401
+#   GET /actuator/health/liveness     -> 401
+#
+# `SecurityCommons.authRules()` permits the EXACT path `/actuator/health` and
+# then falls through to `.anyRequest().authenticated()`. The group sub-paths are
+# not permitted, so the kubelet gets a 401 and kills the pod on the liveness
+# probe — observed as auth-service crash-looping with exit 143 and
+# "Liveness probe failed: HTTP probe failed with statuscode: 401".
+#
+# Moving actuator to a separate management port (`management.server.port`) was
+# tried and does NOT help: the parent context's SecurityFilterChain still
+# applies, and the group endpoints return 401 on the management port too.
+#
+# The one-line fix is `.requestMatchers("/actuator/health/**").permitAll()` in
+# SecurityCommons — a change to shared service source, which FR-044 and the
+# plan's structure decision put outside this feature. So the probes are shaped
+# around what is actually reachable, and the limitation is recorded in
+# docs/known-gaps.md rather than hidden by a probe that happens to pass.
+#
+# What that yields, and it still satisfies FR-063's substance:
+#
+#   startup    HTTP /actuator/health — the full aggregate, so a slow JVM is
+#              never killed mid-boot
+#   readiness  HTTP /actuator/health — includes db and redis, which is exactly
+#              right for "can this replica serve traffic": a pod that cannot
+#              reach either will reject every request it is sent
+#   liveness   TCP on the service port — "is this process alive", depending on
+#              NOTHING external
+#
+# Readiness and liveness remain genuinely distinct, which is the property
+# FR-063 exists to protect. A liveness probe on /actuator/health would depend on
+# the database, turning a database blip into a rolling restart of every replica
+# — the single most common way a cluster amplifies an outage.
+#
+# The cost of a TCP liveness probe, stated plainly: it cannot detect a JVM that
+# is alive but deadlocked. An HTTP liveness on a dependency-free endpoint would,
+# and that endpoint is precisely what the security chain does not expose.
+probes:
+  startup:
+    path: /actuator/health
+    # failureThreshold x periodSeconds is the whole budget: 60 x 5s = 5 minutes
+    # before the startup probe gives up. Until it succeeds the liveness probe
+    # does not run at all, which is exactly what a startup probe is for.
+    periodSeconds: 5
+    failureThreshold: 60
+  readiness:
+    path: /actuator/health
+    periodSeconds: 5
+    failureThreshold: 3
+    timeoutSeconds: 3
+  liveness:
+    # TCP, not HTTP — see the block above.
+    tcpSocket: true
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 3
+
+# FR-064: a controlled way to force a replica unready, so the readiness drill
+# can observe traffic stopping while the process keeps running. Gated behind a
+# non-production profile and OFF by default — the mechanism exists, and enabling
+# it is an explicit act.
+readinessToggle:
+  enabled: false
+
+# Sized for in-flight requests to finish. Paired with the exec-form entrypoint
+# in the Dockerfiles: without exec form the JVM never receives SIGTERM and this
+# value becomes a 30-second delay before a kill, on every single rollout.
+terminationGracePeriodSeconds: 45
+
+# --- Rolling update (SC-009) ----------------------------------------------
+rollingUpdate:
+  # New pods Ready BEFORE old ones terminate. maxUnavailable: 0 is what makes
+  # "zero failed requests during a rollout" achievable at all.
+  maxUnavailable: 0
+  maxSurge: 1
+
+# --- Disruption (FR-065) ---------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+topologySpread:
+  enabled: true
+  # Spread across the two workers. ScheduleAnyway rather than DoNotSchedule:
+  # on a workstation, a hard constraint turns a capacity shortfall into a
+  # permanently Pending pod, which is a worse failure than an uneven spread.
+  whenUnsatisfiable: ScheduleAnyway
+  maxSkew: 1
+
+# --- Concurrency (FR-049, FR-050) -----------------------------------------
+concurrency:
+  # Both services ship with spring.threads.virtual.enabled=true. The switch is
+  # configuration-only so the benchmark can compare both modes without a rebuild
+  # (FR-103), and the active mode is read back from the running pod rather than
+  # assumed.
+  #
+  # docs/concurrency.md states plainly when virtual threads do and do not help,
+  # and never claims they inherently reduce memory consumption (FR-050).
+  virtualThreads: true
+
+# --- Observability (D10, contracts/observability-contract.md) -------------
+observability:
+  # The agent is baked into the image and inert. This is what turns it on.
+  agentEnabled: true
+  collectorService: otel-collector-opentelemetry-collector
+  # FR-080b: a lab setting. NOT a production recommendation. Recording every
+  # trace is what makes "retrieve this specific request" testable at all.
+  tracesSampler: always_on
+  # Structured JSON logs carrying trace_id and span_id, configured through the
+  # mounted ConfigMap rather than by editing service resources (FR-082).
+  jsonLogs: true
+
+# --- Autoscaling (FR-070..FR-072) -----------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 6
+  # Driven by REAL OBSERVED METRICS. No simulated or hard-coded replica change
+  # appears anywhere in this lab; when the workstation cannot supply the
+  # headroom to scale, tests/perf/scaling.sh reports the constraint explicitly
+  # and never a false PASS (FR-072, SC-016).
+  targetCPUUtilizationPercentage: 70
+
+# --- Backing services (D14, FR-051) ---------------------------------------
+# The SAME pinned images as the repository's own docker-compose.yml — version
+# parity with local development is worth more than chart convenience.
+#
+# DELIBERATELY EMPTY. app.sh passes both from versions.env, which is the single
+# source of truth (FR-006). A default here would be a second copy of a pinned
+# version, and `make verify-versions` correctly flagged the first draft of this
+# file for exactly that. The templates use `required`, so a missing value fails
+# the render with a message rather than deploying something unintended.
+postgres:
+  image: ""
+  storage: 4Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {memory: 512Mi}
+redis:
+  image: ""
+  storage: 1Gi
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits:   {memory: 256Mi}
+
+# --- Gateway attachment ----------------------------------------------------
+# The Gateway itself is a PLATFORM object (platform/gateway-api/), not a chart
+# template: US1 must reach a Programmed Gateway with no chart installed. The
+# chart only attaches routes to it.
+gateway:
+  name: hydra-gateway
+  namespace: hydra-app
+route:
+  # Route-level timeout, demonstrating FR-028's header-manipulation and timeout
+  # surface. Generous, because a timeout that fires during a cold JVM start
+  # produces a 504 that reads as a routing fault.
+  timeout: 30s
+  # FR-041 / D12 route (1): replace, never append. `set` semantics on
+  # X-Forwarded-For, so a client-supplied value cannot survive to the backend.
+  # This is a security boundary, not a preference — ClientIpResolver trusts the
+  # LEFT-MOST value with no validation, so an appending gateway makes every
+  # per-address rate limit forgeable. tests/integration/xff-forgery.sh proves it
+  # empirically; if this route does not produce replace semantics, D12's second
+  # route (a CiliumClusterwideEnvoyConfig) is applied instead, and if neither
+  # works that is a finding for the Edge Finding, not a defect to hide.
+  xffReplace: true
+
+# --- Network policy (FR-054, FR-073) --------------------------------------
+networkPolicy:
+  enabled: true
+  # Default-deny in hydra-app and hydra-data, then exactly the permitted edges
+  # in contracts/platform-topology.md. Proven, not configured: a real
+  # unauthorised pod attempts each forbidden path and fails 100% of the time
+  # while the authorised equivalents succeed (SC-013). A policy that has never
+  # been tested against a real caller is a YAML file, not a control.
+
+# --- Migration and fixture (D6, D7) ---------------------------------------
+migration:
+  enabled: true
+  # D6: replicas run `validate`, never `update`. Schema creation happens in ONE
+  # Job instance per service. Three replicas issuing concurrent DDL against one
+  # Postgres is precisely the hazard FR-052 names, and a single-instance Job
+  # makes that concurrency structurally impossible rather than hopefully absent.
+  #
+  # `validate` on the replicas is a genuine assertion, not a formality: if the
+  # Job's schema and the pods' mappings ever diverge, the pods fail loudly at
+  # startup instead of silently re-deriving DDL.
+  ddlAuto: update
+  replicaDdlAuto: validate
+
+fixture:
+  enabled: true
+  # acme and beta match EdgeConformanceFixture's constants exactly, so Hydra's
+  # existing suite finds its tenants with nothing overridden (research.md A7).
+  # gamma is deliberately NOT seeded here — SC-007 adds it *after* the gateway is
+  # programmed, which is how "a new tenant needs no gateway change" is
+  # demonstrated rather than asserted.
+  tenants:
+    - {identifier: acme, name: "Acme Corp"}
+    - {identifier: beta, name: "Beta Inc"}
+  # A known password, in a lab, for accounts that exist only in a lab. The
+  # BCrypt hash is computed by the fixture Job at run time rather than pasted
+  # here as a literal — a hash in a values file is a credential in the tracked
+  # tree even when the plaintext is not (FR-053).
+  username: labuser
+  password: "lab-password-not-a-secret"

@@ -1,0 +1,41 @@
+apiVersion: v2
+name: hydra-lab
+description: >-
+  Hydra's auth-service and order-service running in Kubernetes with their real
+  backing services, behind a Cilium Gateway API edge. Everything the lab deploys
+  into the cluster after the platform is in place.
+type: application
+
+# The chart's own version. Bumped when the chart's shape changes, independently
+# of the services' image tags — which are revision-derived and passed in at
+# deploy time (FR-017), never written here.
+version: 0.1.0
+
+# The application version this chart deploys. "revision-derived" rather than a
+# number, because the answer is whatever git sha `make image-publish` produced;
+# writing a literal here would be a second source of truth for something
+# versions.env and the git history already answer.
+appVersion: "revision-derived"
+
+# NO SUB-CHARTS, deliberately (FR-084). Postgres and Redis are templates in this
+# chart using the same pinned images as the repository's own docker-compose.yml
+# (D14), not Bitnami dependencies. Two reasons:
+#
+#   1. Version parity with local development is worth more than chart
+#      convenience. A lab running a different Postgres than `docker compose up`
+#      is measuring a different system.
+#   2. Bitnami's free image catalogue has been restricted, and a lab whose
+#      reproducibility depends on a vendor's registry policy is not
+#      reproducible.
+dependencies: []
+
+keywords:
+  - hydra
+  - multi-tenant
+  - gateway-api
+maintainers:
+  - name: Hydra k8s-lab
+annotations:
+  hydra-lab/not-for-production: >-
+    This chart is a teaching and measurement environment. Its secret handling,
+    storage and exposure model are all lab-shaped. See docs/production-mapping.md.

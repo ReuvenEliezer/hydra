@@ -1,0 +1,31 @@
+{{/*
+  PodDisruptionBudgets (FR-065).
+
+  A PDB constrains VOLUNTARY disruption only — drains, evictions, node upgrades.
+  It does not protect against a node dying, and reading it as availability
+  insurance is the usual mistake.
+
+  minAvailable: 2 against 3 replicas permits one voluntary eviction at a time.
+  Worth stating why not `maxUnavailable: 1`, which looks equivalent: with an HPA
+  attached, replicas is a moving number, and a percentage-or-count maxUnavailable
+  interacts with a shrinking replica set in ways that are hard to reason about
+  during an incident. An absolute floor is unambiguous — and 2 is also the floor
+  below which FR-069's multi-instance properties stop being observable at all.
+*/}}
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- range $svc := list "auth-service" "order-service" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $svc }}
+  namespace: {{ $.Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" $ | nindent 4 }}
+spec:
+  minAvailable: {{ $.Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" $svc) | nindent 6 }}
+---
+{{- end }}
+{{- end }}

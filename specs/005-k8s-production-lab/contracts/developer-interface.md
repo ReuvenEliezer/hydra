@@ -62,6 +62,7 @@ The lab exposes exactly one entry point: `make` from `k8s-lab/`. Every operation
 | `make test-hostile-edge` | Applies the hostile configuration; the same suite MUST **fail**, naming the violated clause (FR-042) |
 | `make validate` | Aggregates into a per-component verdict plus one overall verdict and exit code (FR-101, SC-015) |
 | `make validate-full` | Destroy → recreate → install → deploy → smoke + integration + conformance. Never part of `make test` (FR-100) |
+| `make validate-repro` | Runs `validate-full` three consecutive times with no manual intervention between passes, recording each to `results/reproducibility/` (FR-108, SC-003) |
 
 ### Performance
 

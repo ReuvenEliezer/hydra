@@ -1,0 +1,57 @@
+{{/*
+  HorizontalPodAutoscalers (FR-070, FR-071, FR-072).
+
+  Driven by REAL OBSERVED METRICS. There is no simulated metric, no hard-coded
+  replica change and no scripted scale anywhere in this lab — FR-070 says so
+  because a scaling demonstration that moves the replica count itself proves
+  nothing at all.
+
+  This requires metrics-server to be present, which the platform installs. When
+  it is not, the HPA reports `ScalingActive=False` with reason
+  `FailedGetResourceMetric`, and tests/perf/scaling.sh reads that condition and
+  reports "could not observe" — explicitly distinct from "did not scale"
+  (FR-072, SC-016). Never a false PASS.
+
+  minReplicas is 3, not 1. An HPA that can scale to a single replica destroys
+  the multi-instance properties FR-069 requires, and it would do so silently,
+  in the middle of whichever test happened to be running.
+*/}}
+{{- if .Values.autoscaling.enabled }}
+{{- range $svc := list "auth-service" "order-service" }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $svc }}
+  namespace: {{ $.Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $svc }}
+  minReplicas: {{ $.Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $.Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Utilization is a percentage OF THE REQUEST, not of the limit and not
+          # of the node. With requests.cpu: 250m, 70% means 175m — which is why
+          # the request value is a scaling input and not just a scheduling hint.
+          averageUtilization: {{ $.Values.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      # Short window so a load test can actually observe a scale-up inside a
+      # test's lifetime. Production would be slower; docs/production-mapping.md
+      # says so rather than leaving a reader to copy this.
+      stabilizationWindowSeconds: 30
+    scaleDown:
+      # Long window, because flapping under a bursty workload produces a
+      # measurement of the autoscaler rather than of the service.
+      stabilizationWindowSeconds: 300
+---
+{{- end }}
+{{- end }}
