@@ -343,7 +343,7 @@ Everything the lab owns lives under `k8s-lab/` at the repository root. The **onl
 - [X] T153 Verify SC-018 by seeding one fault from each class — scheduling, image, readiness, routing, DNS, network policy, autoscaling, datastore, cache — and confirming `make dump` output alone lets a reader name the failing component; extend `k8s-lab/scripts/dump.sh` wherever it does not
 - [X] T154 Verify SC-019 by executing every target listed in contracts/developer-interface.md against a healthy environment and confirming each exists, is documented and exits zero; record the results in `k8s-lab/results/`
 - [X] T155 Run Hydra's existing test suites unchanged via `mvn -f pom.xml test` and confirm they pass with zero assertions modified, recording the output in `k8s-lab/results/existing-suites/` (FR-102, SC-020)
-- [ ] T156 Execute `make validate-full` three consecutive times with no manual intervention between passes and record the outcomes in `k8s-lab/results/reproducibility/` (FR-108, SC-003)
+- [X] T156 Execute `make validate-full` three consecutive times with no manual intervention between passes and record the outcomes in `k8s-lab/results/reproducibility/` (FR-108, SC-003)
 - [X] T157 Time a full clean-machine run from `make doctor` to a validated environment and record the wall-clock result against the 45-minute budget in `k8s-lab/results/setup-timing.md` (SC-001)
 - [X] T158 Walk `specs/005-k8s-production-lab/quickstart.md` end to end against the built lab, correcting any step that does not work as written
 - [X] T159 Record the executed run results in `k8s-lab/results/` and confirm no requirement is reported satisfied on the strength of generated files alone (FR-116)

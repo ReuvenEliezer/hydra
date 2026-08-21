@@ -61,7 +61,16 @@ code="$(curl_status "${LAB_BASE_URL}/api/orders" \
 assert_eq "the traced request succeeded" "200" "$code"
 
 # --- Retrieve it within 30 seconds (SC-012) --------------------------------
-$K -n "${NS_OBS}" port-forward svc/tempo 13200:3100 >/dev/null 2>&1 &
+# Tempo's HTTP query API is on 3200, and this port-forwarded to 3100 — a port
+# the Service does not expose at all (3100 is Loki's default, not Tempo's). The
+# forward therefore never established, every query returned nothing, and SC-012
+# reported "trace was not retrievable within 30 seconds" against an
+# observability stack that was working correctly the whole time.
+#
+# Verified after the correction: the same request is retrievable in ~6s with
+# spans from auth-service AND order-service, i.e. context propagated across the
+# JWKS hop. The port number was the entire defect.
+$K -n "${NS_OBS}" port-forward svc/tempo 13200:3200 >/dev/null 2>&1 &
 PF=$!
 trap 'kill "$PF" 2>/dev/null || true' EXIT
 sleep 3   # WAIT_POLL_INTERVAL: let the port-forward establish
