@@ -24,7 +24,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.IOException;
@@ -77,8 +77,8 @@ class AuthOrderCrossServiceIntegrationTest {
     protected static RedisContainer redis = new RedisContainer(DockerImageName.parse("redis:8.8-alpine"))
             .withReuse(true);
 
-    private static PostgreSQLContainer<?> authPostgres;
-    private static PostgreSQLContainer<?> orderPostgres;
+    private static PostgreSQLContainer authPostgres;
+    private static PostgreSQLContainer orderPostgres;
 
     private static ConfigurableApplicationContext authContext;
     private static ConfigurableApplicationContext orderContext;
@@ -128,11 +128,11 @@ class AuthOrderCrossServiceIntegrationTest {
     static void startBothServices() throws Exception {
         // --- Two independent Postgres instances, one per service, matching how this
         //     actually runs in production (each service owns its own database). ---
-//        authPostgres = new PostgreSQLContainer<>("postgres:16-alpine")
+//        authPostgres = new PostgreSQLContainer("postgres:16-alpine")
 //                .withDatabaseName("auth_db");
 //        authPostgres.start();
 //
-//        orderPostgres = new PostgreSQLContainer<>("postgres:16-alpine")
+//        orderPostgres = new PostgreSQLContainer("postgres:16-alpine")
 //                .withDatabaseName("orders_db");
 //        orderPostgres.start();
 

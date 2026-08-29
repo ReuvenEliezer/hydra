@@ -36,12 +36,12 @@
 
     <properties>
         <java.version>25</java.version>
-        <spring-boot.version>4.1.0</spring-boot.version>
+        <spring-boot.version>4.1.1</spring-boot.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <nimbus-jose-jwt>10.9.1</nimbus-jose-jwt>
-        <testcontainers.version>1.21.4</testcontainers.version>
-        <awssdk.version>2.53.1</awssdk.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <awssdk.version>2.54.6</awssdk.version>
     </properties>
 
     <dependencyManagement>
@@ -85,7 +85,7 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <configuration>
                         <parameters>true</parameters>
-                        <release>25</release>
+                        <release>${java.version}</release>
                     </configuration>
                 </plugin>
 
