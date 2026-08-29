@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# HOSTILE CONFIGURATION — Clause 2 violation (FR-042, FR-037).
+#
+# DO NOT COPY THIS INTO ANYTHING. It exists to be wrong.
+#
+# This makes the gateway emit its own CORS response headers. Many gateways ship
+# this enabled, and on its own it is reasonable — a gateway adding CORS for a
+# backend that has none is a normal thing to do.
+#
+# The failure here is a COLLISION, not a misconfiguration. Hydra's
+# `browser-edge-starter` already emits `Access-Control-Allow-Origin`, echoing
+# the single matching origin — which is what keeps `allowCredentials(true)`
+# legal for the refresh-cookie flow. With the gateway emitting as well, the
+# browser receives TWO `Access-Control-Allow-Origin` headers and rejects the
+# response outright.
+#
+# What makes this genuinely nasty: every server-side check passes. curl shows
+# a 200. The service log shows a successful request. The gateway log shows a
+# successful proxy. Only the browser refuses, and only for cross-origin calls —
+# which is to say, only for real users, and only in production.
+#
+# Clause 2 is a COUNT assertion for exactly this reason: not "is the header
+# present" but "is there exactly one".
+#
+# Uses a CiliumClusterwideEnvoyConfig because CORS injection is not expressible
+# in the Gateway API standard channel — which is itself worth noticing: a real
+# gateway would more likely enable this through a controller-specific
+# annotation, and be even easier to do by accident.
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideEnvoyConfig
+metadata:
+  name: hostile-gateway-cors
+  labels:
+    hydra-lab/hostile: "true"
+  annotations:
+    hydra-lab/violates: >-
+      Clause 2 of the transparent edge contract: exactly one
+      Access-Control-Allow-Origin, echoing the caller.
+    hydra-lab/expected-symptom: >-
+      Two Access-Control-Allow-Origin headers on the response. Every server-side
+      check still passes; only a browser notices, and only cross-origin.
+spec:
+  services:
+    - name: cilium-gateway-hydra-gateway
+      namespace: hydra-app
+  resources:
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: hostile-cors-listener
+      filterChains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typedConfig:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                statPrefix: hostile_cors
+                httpFilters:
+                  - name: envoy.filters.http.cors
+                    typedConfig:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+                  - name: envoy.filters.http.router
+                    typedConfig:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                routeConfig:
+                  name: hostile_cors_route
+                  virtualHosts:
+                    - name: hostile
+                      domains: ["*"]
+                      # The second Access-Control-Allow-Origin. `*` is also the
+                      # wrong VALUE for a credentialed flow — a browser rejects
+                      # `*` outright when credentials are involved — so this
+                      # manages to be wrong twice.
+                      typedPerFilterConfig:
+                        envoy.filters.http.cors:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy
+                          allowOriginStringMatch:
+                            - safeRegex:
+                                googleRe2: {}
+                                regex: ".*"
+                          allowMethods: "GET, POST, PUT, DELETE, OPTIONS"
+                          allowHeaders: "*"
+                          allowCredentials: true
+                      routes:
+                        - match: {prefix: "/"}
+                          route: {cluster: "hydra-app/auth-service"}

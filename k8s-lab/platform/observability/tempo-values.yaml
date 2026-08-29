@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Tempo — the trace store, and the ONLY tracing component added (FR-080a, D10).
+#
+# Chosen over Jaeger for one reason that is not about features: Jaeger ships a
+# UI. FR-080a forbids a parallel tracing console, and Grafana already queries
+# Tempo natively — so Tempo adds a trace STORE without adding a second place to
+# look. That is the whole argument.
+#
+# Disabled entirely in reduced-footprint mode (D18, FR-091). When it is,
+# SC-012's end-to-end trace scenario is reported SKIPPED-BY-CONFIGURATION and
+# never PASS: a test that silently stops checking is worse than one that fails.
+# ---------------------------------------------------------------------------
+tempo:
+  repository: grafana/tempo
+
+  # Local filesystem storage. A lab-scale choice with a real consequence stated
+  # rather than buried: traces do not survive the pod. Production would use
+  # object storage with a retention policy — docs/production-mapping.md.
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  retention: 24h
+
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {memory: 1Gi}
+
+persistence:
+  # An emptyDir, deliberately. A PVC would make traces survive a pod restart and
+  # nothing else — and on kind's hostPath provisioner it would also pin the pod
+  # to one node for no benefit. Traces here are for the request you are looking
+  # at right now.
+  enabled: false
+
+# No UI of its own is installed or exposed. Grafana is the only console
+# (FR-080a, FR-088).

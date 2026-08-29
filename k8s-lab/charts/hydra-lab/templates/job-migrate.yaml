@@ -1,0 +1,247 @@
+{{/*
+  Schema migration (D6, FR-052).
+
+  ONE instance per service, per database, as a Helm pre-install/pre-upgrade
+  hook. No Deployment pod starts until both Jobs complete.
+
+  WHY A JOB AND NOT ddl-auto ON THE REPLICAS
+  ------------------------------------------
+  Hibernate `ddl-auto: update` is the real schema authority in this repository.
+  It is set in every profile of both services, and Liquibase — despite being
+  correctly wired, on the classpath, with changelogs at Spring Boot's default
+  location — DOES NOT RUN. Under Boot 4 the per-technology auto-configuration
+  moved out of spring-boot-autoconfigure into dedicated modules, and
+  `org.springframework.boot:spring-boot-liquibase` appears nowhere in either
+  service's dependency tree. `liquibase-core` ships no AutoConfiguration.imports
+  and cannot self-register, and `infra-database` is a POM-only aggregator with
+  no src/ and therefore no hand-written SpringLiquibase bean. No class on the
+  runtime classpath creates one. (research.md A3.)
+
+  So the choice was never "Liquibase or Hibernate" — it is "Hibernate,
+  serialised, or Hibernate, concurrent". Three replicas issuing concurrent DDL
+  against one Postgres is precisely the hazard FR-052 names, and a
+  single-instance Job makes that concurrency STRUCTURALLY IMPOSSIBLE rather than
+  hopefully absent.
+
+  WHY NOT ADOPT THE EXISTING LIQUIBASE CHANGELOGS
+  -----------------------------------------------
+  Activating them means adding the Boot 4 module, which would run two
+  never-executed changelogs against a schema Hibernate has been authoring since
+  the project began — and would still not find order-service's changelog, which
+  sits at a non-default path with nothing pointing at it. Adopting Liquibase is
+  real work with real value. It is not this feature's work, and doing it as a
+  side effect would be a data-correctness gamble taken by accident.
+  docs/known-gaps.md records the upgrade hazard, because someone will
+  eventually add that module while "fixing the Liquibase setup".
+
+  THE EXIT-AFTER-STARTUP MARKER
+  -----------------------------
+  The Job runs the service's OWN image with its OWN JPA mappings, so Hibernate
+  stays the schema authority and the lab does not get to invent a schema. It
+  exits once the context is up, using Spring Boot's built-in
+  --spring.main.web-application-type=none plus an exit marker, rather than
+  starting a web server nothing will call.
+*/}}
+{{- if .Values.migration.enabled }}
+{{- range $svc := list "auth" "order" }}
+{{- $cfg := index $.Values $svc }}
+{{- $name := printf "%s-service" $svc }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydra-migrate-{{ $svc }}
+  namespace: {{ $.Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: hydra-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    # Weight -10: before the fixture Job (-5). Helm runs hooks in weight order,
+    # and the ordering is the requirement — a fixture applied against a schema
+    # that does not exist yet fails in a way that names the fixture.
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # Exactly one. Not "usually one".
+  parallelism: 1
+  completions: 1
+  # A migration that fails should fail visibly and stop, not retry six times
+  # while the operator watches a Job that looks busy.
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "hydra-lab.labels" $ | nindent 8 }}
+        app.kubernetes.io/name: hydra-migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hydra-migrate
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # ------------------------------------------------------------------
+        # A DEPENDENCY GATE, and it exists because of an observed failure
+        # rather than as a precaution.
+        #
+        # The migration Job failed twice with:
+        #
+        #   Unable to connect to redis.hydra-data.svc.cluster.local/<unresolved>:6379
+        #
+        # while a probe pod with identical labels, in the same namespace, from
+        # the same image resolved that name perfectly a minute later. The JVM
+        # opens its Redis connection within milliseconds of the container
+        # starting — `rate-limit-starter`'s RateLimitRedisAutoConfiguration
+        # builds a Lettuce connection eagerly at context refresh — and loses a
+        # race against Cilium programming the new endpoint's network policy.
+        #
+        # A Deployment survives this: the pod crash-loops and the next attempt
+        # wins. A Job with a low backoffLimit does not, and it fails in a way
+        # that reads as "Redis is down" when Redis is fine.
+        #
+        # Raising backoffLimit would paper over it. Waiting for the dependency
+        # to be genuinely reachable BEFORE the JVM starts makes the ordering
+        # explicit, which is what it should have been in the first place.
+        # Condition-based with a bounded timeout, never a fixed sleep (FR-015).
+        # ------------------------------------------------------------------
+        - name: wait-for-datastores
+          image: {{ required "postgres image is required — app.sh passes it from versions.env (FR-006)" $.Values.postgres.image | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          env:
+            - name: PGHOST
+              value: "postgres.{{ $.Values.global.dataNamespace }}.svc.cluster.local"
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: {{ $.Values.secrets.postgres }}, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $.Values.secrets.postgres }}, key: password}}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              deadline=$(( $(date +%s) + 300 ))
+              # Postgres only. The Job waited for Redis too until RATE_LIMIT_ENABLED=false
+              # removed that dependency entirely — see the note on that variable below.
+              until getent hosts "$PGHOST" >/dev/null 2>&1 && pg_isready -q -h "$PGHOST"; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "FATAL: Postgres not reachable within 300s"
+                  echo "  DNS postgres: $(getent hosts "$PGHOST" 2>&1 || echo UNRESOLVED)"
+                  echo "  If DNS is unresolved from inside the cluster, check the allow-dns"
+                  echo "  NetworkPolicy and whether Cilium has programmed this endpoint."
+                  exit 1
+                fi
+                sleep 2   # WAIT_POLL_INTERVAL: polling interval, not a readiness signal
+              done
+              echo "OK: DNS resolves and Postgres accepts connections"
+      containers:
+        - name: migrate
+          image: {{ include "hydra-lab.image" (dict "svc" $cfg "root" $) }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          args:
+            # `update` HERE and only here.
+            - "--spring.jpa.hibernate.ddl-auto={{ $.Values.migration.ddlAuto }}"
+            # No web server: nothing will call it, and binding a port would make
+            # the Job look like a service to anything watching endpoints.
+            - "--spring.main.web-application-type=none"
+            # Exit once the context has started and the schema is authored.
+            - "--spring.main.register-shutdown-hook=true"
+          env:
+            {{/* noAgent: see the note in _helpers.tpl. A one-shot process must
+                 not export telemetry, and opting out is not the same as
+                 appending an empty override — the latter is a duplicate env key
+                 that server-side apply rejects. */}}
+            {{- include "hydra-lab.appEnv" (dict "svc" $cfg "root" $ "name" (printf "migrate-%s" $svc) "noAgent" true) | nindent 12 }}
+            # ----------------------------------------------------------------
+            # A schema migration has no business rate-limiting anything, and
+            # until this was set the Job could not run at all.
+            #
+            # The Job runs the SERVICE's own image, so it inherits the service's
+            # entire dependency set — including `rate-limit-starter`, whose
+            # RateLimitRedisAutoConfiguration opens a Lettuce connection EAGERLY
+            # at context refresh. The Job therefore needed Redis, which the
+            # NetworkPolicy deliberately does not grant it ("the Jobs have no
+            # reason to touch it"), and startup failed with
+            #   Unable to connect to redis.hydra-data.svc.cluster.local:6379
+            # while Postgres was reachable the whole time.
+            #
+            # Two ways out. Widening the policy to let Jobs reach Redis would
+            # have made the failure go away and made the assumption behind the
+            # policy quietly false. Turning the starter off removes the
+            # dependency instead: `rate-limit.enabled=false` is an explicit
+            # @ConditionalOnProperty in the starter and yields a
+            # NoOpRateLimiterEngine, so nothing in the Job touches Redis and the
+            # policy stays as narrow as it claims to be.
+            #
+            # This is also why contracts/platform-topology.md lists Postgres but
+            # not Redis for the Jobs: that table is now true, rather than true
+            # only because nothing tested it.
+            # ----------------------------------------------------------------
+            - name: RATE_LIMIT_ENABLED
+              value: "false"
+            {{- if eq $svc "auth" }}
+            # auth-service will not build a context without a KeyProvider bean,
+            # and under the `test` profile LocalKeyProvider reads this path
+            # (research.md A4). The migration Job needs it for exactly that
+            # reason and uses the key for nothing.
+            - name: JWT_PRIVATE_KEY_PATH
+              value: /secrets/jwt/private-key.pem
+            {{- end }}
+          volumeMounts:
+            # NO /config mount, deliberately — see the volumes block below.
+            - {name: tmp, mountPath: /tmp}
+            {{- if eq $svc "auth" }}
+            - {name: jwt-key, mountPath: /secrets/jwt, readOnly: true}
+            {{- end }}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 1Gi}
+      volumes:
+        # ------------------------------------------------------------------
+        # THE CONFIGMAP IS NOT MOUNTED HERE, and that is an ordering fix rather
+        # than an omission.
+        #
+        # This Job is a Helm pre-install/pre-upgrade HOOK, and hooks run BEFORE
+        # the chart's ordinary resources are applied. The ConfigMap is an
+        # ordinary resource. So on a first install the mount would reference a
+        # ConfigMap that does not exist yet, and on an upgrade it would mount
+        # the PREVIOUS revision's copy — which is exactly what happened here: an
+        # edit to the ConfigMap was invisible to the Job, the Job kept failing
+        # on the old content, the failing hook aborted the upgrade, and the
+        # Deployments therefore never received any of the new configuration
+        # either. One stale mount stalled the entire release.
+        #
+        # The Job does not need it. Everything it requires is already explicit:
+        #   ddl-auto=update              a command-line arg (outranks any file)
+        #   datastore URL + credentials  environment variables
+        #   web-application-type=none    a command-line arg
+        # Everything else in that ConfigMap — actuator exposure, CORS, cookie
+        # flags, refresh-token timing — is irrelevant to authoring a schema.
+        #
+        # SPRING_CONFIG_ADDITIONAL_LOCATION carries an `optional:` prefix for
+        # exactly this reason.
+        # ------------------------------------------------------------------
+            # The mounted config sets ddl-auto=validate for the replicas. The
+            # Job overrides it on the command line, which outranks a config
+            # file — stated here because "the ConfigMap says validate but the
+            # Job creates schema" is otherwise a contradiction a reader has to
+            # resolve for themselves.
+        - name: tmp
+          emptyDir: {}
+        {{- if eq $svc "auth" }}
+        - name: jwt-key
+          secret:
+            secretName: {{ $.Values.secrets.jwtKey }}
+            defaultMode: 0400
+        {{- end }}
+---
+{{- end }}
+{{- end }}

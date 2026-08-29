@@ -1,0 +1,137 @@
+# ---------------------------------------------------------------------------
+# OpenTelemetry Collector (D10, contracts/observability-contract.md).
+#
+# Every signal in this lab passes through here. Neither service has ANY
+# telemetry capability of its own — no Micrometer registry, no tracing
+# dependency, no metrics endpoint (research.md A6) — so everything observable is
+# produced by the Java agent and arrives at this collector over OTLP.
+#
+# The collector's job is to fan out: metrics to a Prometheus endpoint that
+# Prometheus scrapes, traces to Tempo. Grafana then queries both, which is what
+# keeps FR-080a satisfied — one UI, no parallel tracing console.
+# ---------------------------------------------------------------------------
+mode: deployment
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+# One replica. Not a resilience statement — a lab-scale statement. Two would
+# split the metric series across instances and make the Prometheus scrape
+# ambiguous without a load-balancing exporter in front, which is a production
+# concern this lab does not simulate.
+replicaCount: 1
+
+presets:
+  # Off: kubelet and kube-state metrics are scraped by Prometheus directly.
+  # Collecting them here as well would double-count every container metric.
+  kubeletMetrics:
+    enabled: false
+  logsCollection:
+    # FR-082: no heavyweight log storage. Logs are read with `kubectl logs` and
+    # through the cluster console; production options are documented rather
+    # than installed.
+    enabled: false
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          # 0.0.0.0, not localhost: the agent connects from another pod.
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    # Bounded, and it matters: an unbounded batcher under a load test turns
+    # memory pressure in the collector into dropped spans exactly when the
+    # benchmark is trying to measure something.
+    batch:
+      timeout: 5s
+      send_batch_size: 1024
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 20
+    # Attach Kubernetes identity to every signal, so a metric or a span can be
+    # traced back to the pod, node and namespace that produced it. Without this
+    # a 429 spike is visible and unattributable.
+    k8sattributes:
+      auth_type: serviceAccount
+      passthrough: false
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.node.name
+          - k8s.deployment.name
+          - k8s.container.name
+
+  exporters:
+    # Metrics: exposed for Prometheus to scrape rather than pushed. Pull keeps
+    # the failure mode legible — a missing target is visible in Prometheus's own
+    # UI, whereas a failed push is visible only in the collector's logs.
+    prometheus:
+      endpoint: 0.0.0.0:8889
+      # Resource attributes become labels, so the k8sattributes above are
+      # queryable rather than merely present.
+      resource_to_telemetry_conversion:
+        enabled: true
+      enable_open_metrics: true
+    otlp/tempo:
+      # Endpoint supplied by platform.sh from versions.env-derived values, so
+      # this file carries no hostname of its own.
+      endpoint: ""
+      tls:
+        # In-cluster, single trust domain, no mesh. Documented rather than
+        # silently insecure: production would use mTLS here, and
+        # docs/production-mapping.md says so.
+        insecure: true
+
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [otlp/tempo]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [prometheus]
+    telemetry:
+      logs:
+        level: info
+
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+  prometheus:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+
+# k8sattributes needs to read pods and namespaces. This is the one component in
+# the lab with a genuine API-server need, and the role it gets is read-only over
+# exactly those two resources.
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [pods, namespaces, nodes]
+      verbs: [get, watch, list]
+    - apiGroups: ["apps"]
+      resources: [replicasets]
+      verbs: [get, watch, list]
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits:   {memory: 512Mi}

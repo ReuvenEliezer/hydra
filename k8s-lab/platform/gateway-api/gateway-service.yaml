@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# The Gateway Service's fixed NodePorts (FR-030, D8).
+#
+# NOT a Service manifest — a PATCH, applied by scripts/platform.sh. The
+# distinction is the whole content of this file, and it was learned by trying
+# the other way first.
+#
+# Cilium's Gateway API controller CREATES and OWNS the Service for a Gateway:
+#
+#   name             cilium-gateway-hydra-gateway
+#   type             LoadBalancer      (not NodePort)
+#   selector         none              (Cilium programs the datapath directly;
+#                                       there are no endpoints to select)
+#   ownerReferences  Gateway/hydra-gateway
+#   ports            port-80, port-443, with nodePorts ALLOCATED at random
+#
+# `kubectl apply` of a full Service spec against that object does not work: it
+# tries to change the type from LoadBalancer to NodePort and rename the ports,
+# both of which the controller owns and immediately reverts. The observed result
+# was an allocated nodePort of 32158 while kind's extraPortMappings bound host
+# 443 to 30443 — so nothing reached the gateway, and `gw-status` correctly
+# reported the mismatch.
+#
+# What DOES work, verified empirically rather than assumed: patching only the
+# `nodePort` field of the existing ports. Cilium preserves an already-assigned
+# nodePort across reconciliation — confirmed by forcing a reconcile with an
+# annotation change and re-reading the Service, which kept 30443/30080.
+#
+# Why a fixed port at all: FR-030 asks for exactly ONE deterministic exposure
+# mechanism. An allocated NodePort is knowable only after the cluster exists, so
+# no document can name the address in advance and every document that names it
+# goes stale on the next recreation. The ports below are matrix values, matching
+# cluster/kind-cluster.yaml's extraPortMappings, which is why neither file
+# carries its own literal.
+#
+# TEMPLATE — ${...} substituted by scripts/platform.sh from versions.env.
+# ---------------------------------------------------------------------------
+patchTarget:
+  namespace: ${NS_APP}
+  name: cilium-gateway-hydra-gateway
+# Keyed by the Service PORT (443/80), not by array index: the controller does
+# not guarantee port ordering, and an index-based patch silently swaps HTTP and
+# HTTPS when it changes.
+ports:
+  - port: 443
+    nodePort: ${GATEWAY_NODEPORT_HTTPS}
+  - port: 80
+    nodePort: ${GATEWAY_NODEPORT_HTTP}

@@ -1,0 +1,97 @@
+# ---------------------------------------------------------------------------
+# HOSTILE CONFIGURATION — Clause 1 violation (FR-042).
+#
+# DO NOT COPY THIS INTO ANYTHING. It exists to be wrong.
+#
+# This HTTPRoute rewrites the `Host` header to the backend service name. That
+# is the single most common gateway default in the wild — nginx's
+# `proxy_set_header Host $proxy_host`, and the default behaviour of several
+# ingress controllers — and it is usually harmless, because most applications
+# do not care what `Host` says.
+#
+# Against Hydra it is a TOTAL OUTAGE, not a degradation. Tenant identity comes
+# from `Host` and from nothing else: no header, no query parameter, no path
+# segment, no body field. Rewrite it and EVERY tenant resolves to `unknown`
+# simultaneously. Not one tenant. All of them. There is no partial failure mode.
+#
+# That asymmetry — a default that is unremarkable elsewhere and catastrophic
+# here — is precisely why the transparent edge contract exists, and why a
+# conformance suite that only ever meets a correct edge proves nothing.
+#
+# Applied by `make test-hostile-edge`, which asserts the suite FAILS and names
+# the clause, then reverts and re-verifies that conformance passes again.
+#
+# WHY THIS USES `URLRewrite` AND NOT `RequestHeaderModifier`.
+#
+# The first version of this file set Host through a RequestHeaderModifier
+# filter. It does not work, and it does not fail either — which is worse.
+# Measured on the running cluster:
+#
+#     the HTTPRoute is accepted            Accepted=True, ResolvedRefs=True
+#     the filter is present in .spec       requestHeaderModifier.set[Host]
+#     the Host header reaching the service UNCHANGED
+#     GET /api/v1/tenant                   {"status":"recognized"}  <- NOT hostile
+#
+# Gateway API forbids RequestHeaderModifier from touching `Host`: the header is
+# excluded from that filter by specification, so a conformant implementation
+# ignores it silently. There is no warning, no rejected route, no status
+# condition — the configuration simply has no effect.
+#
+# The consequence for FR-042 was severe and is the reason this was found: the
+# drill applied a hostile configuration that was not hostile, ran the
+# conformance suite against a perfectly correct edge, watched it pass, and
+# reported "the suite PASSED against the hostile gateway" — an accusation
+# against a suite that was working correctly the whole time.
+#
+# `URLRewrite.hostname` is the filter Gateway API designates for this, and it
+# produces the documented symptom: {"status":"unknown"} for every tenant.
+# ---------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hydra-api
+  namespace: hydra-app
+  labels:
+    hydra-lab/hostile: "true"
+  annotations:
+    hydra-lab/violates: >-
+      Clause 1 of the transparent edge contract: the Host header must reach the
+      service unmodified.
+    hydra-lab/expected-symptom: >-
+      GET /api/v1/tenant returns status "unknown" for every tenant hostname,
+      because the service sees Host: auth-service rather than acme.localhost.
+spec:
+  parentRefs:
+    - name: hydra-gateway
+      namespace: hydra-app
+      sectionName: https
+  hostnames:
+    - "*.localhost"
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/v1/auth}
+        - path: {type: PathPrefix, value: /api/v1/tenant}
+        - path: {type: PathPrefix, value: /api/v1/admin}
+        - path: {type: PathPrefix, value: /.well-known}
+      filters:
+        # THE VIOLATION. Innocuous-looking, catastrophic here.
+        - type: URLRewrite
+          urlRewrite:
+            hostname: "auth-service"
+      backendRefs:
+        - name: auth-service
+          port: 8083
+      timeouts:
+        request: 30s
+    - matches:
+        - path: {type: PathPrefix, value: /api/orders}
+        - path: {type: PathPrefix, value: /api/test-orders}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            hostname: "order-service"
+      backendRefs:
+        - name: order-service
+          port: 8082
+      timeouts:
+        request: 30s

@@ -1,0 +1,148 @@
+{{/*
+  configmap-app.yaml — every lab-specific Spring setting, delivered as a mounted
+  file (D5, FR-044, FR-082).
+
+  This is the mechanism that keeps FR-044 true: NO application-*.yml is added to
+  either service's resources, and no service source is edited. The file below is
+  mounted at /config/ and picked up via SPRING_CONFIG_ADDITIONAL_LOCATION, which
+  outranks the profile YAML packaged inside the jar.
+
+  Why several of these values must be overridden EXPLICITLY: application-test.yml
+  sets them as LITERALS, not as ${ENV:default} placeholders. An environment
+  variable would not reach them, and the difference is silent.
+
+    refresh-token.cookie.secure   false -> true
+        FR-032. The credential's Secure attribute is the thing Clause 4 of the
+        transparent edge contract exercises. Left at false, the conformance run
+        would pass while testing nothing.
+
+    refresh-token.grace-ttl       PT2S -> PT5S
+        A 2-second grace window makes FR-067's concurrent-rotation result
+        ambiguous: two rotations 1.5s apart would BOTH legitimately succeed, and
+        "exactly one succeeded" becomes unmeasurable. PT5S is the application's
+        own default, restored.
+
+    spring.jpa.hibernate.ddl-auto update -> validate
+        D6. Schema creation happens in ONE Job instance; the replicas validate.
+        Three replicas issuing concurrent DDL against one Postgres is exactly
+        the hazard FR-052 names. `validate` is also a real assertion: if the
+        Job's schema and the pods' mappings diverge, the pods fail loudly at
+        startup instead of silently re-deriving DDL.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hydra-lab-config
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+data:
+  application-lab.yml: |
+    # Mounted at /config/application-lab.yml. Not part of either service's
+    # source or resources — see the header above.
+
+    spring:
+      jpa:
+        hibernate:
+          # D6: the replicas VALIDATE. Only the migration Job creates schema.
+          ddl-auto: {{ .Values.migration.replicaDdlAuto }}
+        # Hibernate's SQL echo is on in application-test.yml. At three replicas
+        # under load it is a torrent that buries everything worth reading, and
+        # the lab's whole point is teaching people to read logs.
+        show-sql: false
+      threads:
+        virtual:
+          enabled: {{ .Values.concurrency.virtualThreads }}
+    {{- if .Values.observability.jsonLogs }}
+      # FR-082: machine-parseable structured records. Spring Boot's built-in
+      # structured logging, not a new dependency — FR-044 forbids adding one,
+      # and nothing needs to be added: this has been built in since Boot 3.4.
+      #
+      # trace_id and span_id arrive via the OTel agent's log correlation, which
+      # populates MDC. They are named as custom members below because the
+      # ecs/logstash defaults do not carry them.
+      logging:
+        structured:
+          format:
+            console: ecs
+          ecs:
+            service:
+              environment: k8s-lab
+    {{- end }}
+
+    # Actuator exposure. Neither service exposes metrics today — order-service
+    # exposes health,info and auth-service declares no management block at all
+    # (research.md A6) — so it is supplied HERE rather than by editing either
+    # service's resources (FR-044).
+    management:
+      endpoints:
+        web:
+          exposure:
+            # Deliberately narrow. `*` would expose /actuator/env and
+            # /actuator/configprops, both of which print configuration values
+            # including ones sourced from Secrets.
+            include: health,info,metrics
+      endpoint:
+        health:
+          show-details: when-authorized
+      # NO health GROUPS are configured, and their absence is deliberate.
+      #
+      # The obvious configuration — readiness: {include: readinessState,db,redis}
+      # and liveness: {include: livenessState} — was written first and removed
+      # for two independent reasons, each sufficient on its own:
+      #
+      #   1. The group ENDPOINTS are unreachable. /actuator/health/readiness and
+      #      /actuator/health/liveness both return 401: SecurityCommons permits
+      #      the exact path /actuator/health and then falls through to
+      #      .anyRequest().authenticated(). Configuring groups nothing can call
+      #      is dead weight. (Moving actuator to its own management port does
+      #      not help — tried, still 401.) See values.yaml `probes`.
+      #
+      #   2. It broke order-service outright:
+      #        Health contributor 'redis' defined in
+      #        'management.endpoint.health.group.readiness.include' does not exist
+      #      One ConfigMap serves both services, and order-service has no Redis
+      #      health contributor because it does not use Redis. A group naming a
+      #      contributor that does not exist is a STARTUP FAILURE, not a warning.
+      #
+      # The probes therefore use the plain /actuator/health aggregate for
+      # startup and readiness — which already includes each service's real
+      # dependencies, so readiness means what it should — and a TCP check for
+      # liveness. docs/known-gaps.md records the one-line source fix that would
+      # restore the group endpoints, which this feature is not permitted to make.
+
+    refresh-token:
+      # FR-032. application-test.yml sets `false` as a literal.
+      cookie:
+        secure: true
+      # PT2S in application-test.yml would make SC-010's result ambiguous.
+      grace-ttl: PT5S
+
+    hydra:
+      tenant:
+        base-domains: {{ .Values.global.baseDomain }}
+      cors:
+        # Tenant origins over TLS. The pattern form matters: every tenant is its
+        # own origin, so a fixed list would need a deployment per tenant — which
+        # is exactly what FR-040 says must not be true. Spring echoes back the
+        # single matching origin, which is what keeps allowCredentials(true)
+        # legal for the refresh-cookie flow.
+        allowed-origin-patterns: "https://*.{{ .Values.global.baseDomain }},http://*.{{ .Values.global.baseDomain }}:5173"
+
+  # The readiness toggle (FR-064), gated and off by default. Present as a
+  # separate document so enabling it is a values change rather than an edit.
+  {{- if .Values.readinessToggle.enabled }}
+  application-readiness-toggle.yml: |
+    management:
+      endpoint:
+        health:
+          show-details: when-authorized
+      endpoints:
+        web:
+          exposure:
+            # /actuator/health,readiness can be forced DOWN through the
+            # availability-state endpoint. Exposed ONLY when the toggle is
+            # enabled — an endpoint that can make a replica stop serving is not
+            # something to leave reachable by default.
+            include: health,info,metrics,serviceregistry
+  {{- end }}

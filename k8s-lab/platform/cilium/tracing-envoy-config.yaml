@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------------------
+# The gateway span (D13, FR-080, SC-012) — AT RISK BY DESIGN.
+#
+# SC-012 requires a single external request to be retrievable as ONE connected
+# trace beginning at the gateway:
+#
+#   gateway (Envoy)                      <- this file exists to produce this span
+#     └─ order-service  POST /api/orders
+#          ├─ auth-service  JWKS
+#          ├─ postgres query
+#          └─ redis command
+#
+# Everything below the gateway comes free from the OpenTelemetry Java agent. The
+# gateway span does not, and cannot: an agent runs inside a JVM, and Envoy is
+# not one. The only lever available without adding a component is Cilium's own
+# CRD, which is what this is.
+#
+# ── THE HONEST-FAILURE OBLIGATION ──────────────────────────────────────────
+#
+# If this cannot be made to work, SC-012 is reported **FAIL** with the cause
+# named. A trace that begins at order-service is a MISS, not a partial pass, and
+# tests/integration/trace-e2e.sh says so in those words.
+#
+# It is NOT a lab defect to paper over. It is a finding about Cilium's Gateway
+# API implementation, and it belongs in docs/edge-finding.md as a real cost of
+# Kubernetes-as-edge (FR-113, FR-116): a gateway that cannot participate in a
+# trace makes the time a request spends in TLS termination, routing and upstream
+# connection invisible — a latency problem in the edge then looks like a fast
+# backend and a slow client.
+#
+# ── WHY THIS IS FRAGILE ────────────────────────────────────────────────────
+#
+# A CiliumClusterwideEnvoyConfig replaces listener configuration wholesale. Get
+# it wrong and the gateway stops serving entirely rather than serving without
+# traces — which is a much worse failure than the one being fixed. This lab has
+# already met the cheaper version of that: a JSON log format in the Cilium chart
+# produced a bootstrap ConfigMap containing {"Error": ...} and crash-looped every
+# Envoy pod.
+#
+# So this is applied SEPARATELY from `make setup`, deliberately:
+#
+#     kubectl apply -f platform/cilium/tracing-envoy-config.yaml
+#     ./tests/integration/trace-e2e.sh
+#     kubectl delete -f platform/cilium/tracing-envoy-config.yaml   # if it breaks
+#
+# A component whose misconfiguration takes down the edge does not belong in the
+# path that has to work before anything else can be tested.
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideEnvoyConfig
+metadata:
+  name: hydra-gateway-tracing
+  annotations:
+    hydra-lab/satisfies: "SC-012, FR-080 — the gateway span"
+    hydra-lab/risk: >-
+      D13. If Cilium's Envoy will not accept a tracing provider this way, SC-012
+      is reported FAIL with the cause named, and the failure is recorded in
+      docs/edge-finding.md as evidence rather than smoothed over.
+    hydra-lab/apply: "separately from make setup — see the header"
+spec:
+  services:
+    - name: cilium-gateway-hydra-gateway
+      namespace: hydra-app
+  resources:
+    # An OTLP tracing cluster the listener can export to. The collector is the
+    # same one the Java agent uses, so gateway spans and service spans land in
+    # the same trace store and stitch by traceparent.
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: otel_collector_tracing
+      type: STRICT_DNS
+      connect_timeout: 1s
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: otel_collector_tracing
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: otel-collector-opentelemetry-collector.hydra-obs.svc.cluster.local
+                      port_value: 4317
+
+    # The listener's HTTP connection manager, with tracing attached.
+    #
+    # `random_sampling: 100` matches OTEL_TRACES_SAMPLER=always_on on the
+    # services. They must agree: a gateway sampling at 1% and services sampling
+    # everything produces traces that are *usually* missing their root, which is
+    # harder to diagnose than one that never has it (FR-080b).
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: hydra-gateway-traced-listener
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: hydra_gateway_traced
+                tracing:
+                  # Lab setting. See docs/observability.md — this is not a
+                  # production sampling recommendation.
+                  random_sampling:
+                    value: 100
+                  provider:
+                    name: envoy.tracers.opentelemetry
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                      grpc_service:
+                        envoy_grpc:
+                          cluster_name: otel_collector_tracing
+                        timeout: 2s
+                      # The name that appears as the root span's service. It must
+                      # be recognisable as the GATEWAY, not as a service — the
+                      # whole value of this span is knowing the request was in
+                      # the edge.
+                      service_name: hydra-gateway
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -1,0 +1,88 @@
+# ---------------------------------------------------------------------------
+# X-Forwarded-For replace-not-append — D12's ESCAPE HATCH (route 2).
+#
+# ── DO NOT APPLY THIS UNLESS ROUTE 1 HAS BEEN MEASURED AND FAILED ──────────
+#
+# Route 1 is the `HTTPRoute` `RequestHeaderModifier` with a `set` operation,
+# already configured in charts/hydra-lab/templates/httproute.yaml. It is
+# preferred because it keeps FR-026's "Gateway API is the primary configuration
+# model" intact — a Gateway API filter is portable across implementations; this
+# file is not.
+#
+# This exists for one situation: the gateway APPENDS its own observed address
+# AFTER route filters run, leaving a client-supplied value in front. Then no
+# amount of Gateway API configuration helps, because the append happens later.
+#
+# ── WHY THIS MATTERS MORE THAN IT LOOKS ────────────────────────────────────
+#
+# `ClientIpResolver` trusts the LEFT-MOST X-Forwarded-For value with no
+# validation. If a forged value survives to the backend, every per-address rate
+# limit is forgeable by anyone who can set a header: rotate the header, get a
+# fresh bucket, and the login limiter is gone. That is a security boundary, not
+# a preference (FR-041, SC-006).
+#
+# ── HOW TO DECIDE WHETHER YOU NEED IT ──────────────────────────────────────
+#
+#     ./tests/integration/xff-forgery.sh
+#
+# It sends rotating forged addresses and asserts the limiter counted the address
+# the GATEWAY observed. If that passes, route 1 is sufficient and this file
+# should stay unapplied.
+#
+# ── IF NEITHER ROUTE WORKS ─────────────────────────────────────────────────
+#
+# That is a FINDING about Cilium's Gateway API implementation, recorded verbatim
+# in docs/edge-finding.md as a genuine argument against Kubernetes-as-edge
+# (FR-113, FR-116). It is not a lab defect, and the test must not be weakened to
+# make it pass.
+#
+# Consumed through Cilium's own CRD, so FR-029 stays intact: still no standalone
+# gateway controller.
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideEnvoyConfig
+metadata:
+  name: hydra-gateway-xff
+  annotations:
+    hydra-lab/satisfies: "FR-041, SC-006 — X-Forwarded-For replace, not append"
+    hydra-lab/apply-only-if: >-
+      tests/integration/xff-forgery.sh fails with route 1 (the HTTPRoute
+      RequestHeaderModifier) in place. Measure first.
+spec:
+  services:
+    - name: cilium-gateway-hydra-gateway
+      namespace: hydra-app
+  resources:
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: hydra-gateway-xff-listener
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: hydra_gateway_xff
+
+                # THE THREE SETTINGS THAT MATTER, and they only work together.
+
+                # 1. Use the connection's peer address as the client address,
+                #    rather than believing the header.
+                use_remote_address: true
+
+                # 2. Trust ZERO hops. Every proxy in front is untrusted, so any
+                #    inbound XFF is discarded rather than extended.
+                #
+                #    In production behind a real load balancer this becomes 1 —
+                #    and getting it wrong in THAT direction is the classic
+                #    mistake: trusting one hop too many means the value nearest
+                #    the client is attacker-controlled again.
+                xff_num_trusted_hops: 0
+
+                # 3. Do not append. With use_remote_address and zero trusted
+                #    hops, appending would still leave the forged value first.
+                #    This is the setting that makes it a REPLACE.
+                skip_xff_append: false
+
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

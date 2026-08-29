@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# The lab's four namespaces (FR-074, contracts/platform-topology.md).
+#
+# Applied by the `namespaces` checkpoint, immediately after the cluster and
+# BEFORE certs, backing-services and observability — every Secret those create
+# needs a namespace to land in.
+#
+# These are deliberately NOT umbrella-chart templates. The chart is installed
+# last, and it cannot create the namespace that its own prerequisites (the TLS
+# Secret, the datastore Secrets, the Gateway) already needed to exist in. A
+# chart that creates its own namespace is fine when the chart is the first
+# thing to touch it; here it is the last.
+#
+# Cilium's own components stay in kube-system. They are cluster infrastructure,
+# not a lab component, and moving them would misrepresent where they live in
+# any real cluster.
+#
+# The invariant behind FR-074: no application workload runs in `default`.
+# A smoke check asserts it, because "we were careful" is not a control.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hydra-app
+  labels:
+    hydra-lab/tier: application
+    # Consumed by the default-deny NetworkPolicies and by the Gateway's
+    # allowedRoutes selector — a label, not a name match, so the policy says
+    # what it means rather than repeating a string.
+    kubernetes.io/metadata.name: hydra-app
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: ${PSA_ENFORCE_VERSION}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hydra-data
+  labels:
+    hydra-lab/tier: data
+    kubernetes.io/metadata.name: hydra-data
+    # Postgres and Redis official images run as non-root but need a writable
+    # data directory and their own uid; `baseline` is the honest level for them
+    # and `restricted` would be a claim the images do not support.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: ${PSA_ENFORCE_VERSION}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hydra-obs
+  labels:
+    hydra-lab/tier: observability
+    kubernetes.io/metadata.name: hydra-obs
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hydra-delivery
+  labels:
+    hydra-lab/tier: delivery
+    kubernetes.io/metadata.name: hydra-delivery

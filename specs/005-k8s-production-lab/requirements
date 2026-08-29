@@ -1,0 +1,1750 @@
+כן. זה ה־**פרומפט הסופי** שהייתי מריץ מול Claude Code.
+
+עשיתי בו כמה שינויים לעומת הקודם: version matrix לפני התקנה, `make doctor`, הפרדה בין `test` ל־`test-recreate`, `make debug`, Java 25 חייב להיות ה־JDK של ה־build/runtime, Local Registry כ־primary path ו־`kind load` כ־fallback, ו־checkpointing/`kubectl wait` במקום `sleep`. בנוסף, Cilium Gateway API אכן משתמש ב־Envoy כ־L7 data plane, כך שאין צורך ב־Envoy Gateway נפרד עבור ה־Lab הזה. ([Cilium Docs][1])
+
+Spring Boot 4.1.0 תומך ב־Java 25, ו־Virtual Threads מופעלים דרך `spring.threads.virtual.enabled`; Spring ממליצה על Java 24+ עבור החוויה הטובה ביותר. ([Home][2])
+
+# ROLE
+
+You are a Principal Kubernetes Platform Engineer, Cloud-Native Architect, Platform Engineer, and Production Java Engineer.
+
+Your task is to BUILD, RUN, TEST, VALIDATE, DOCUMENT, BREAK, FIX, and RE-VALIDATE a complete local Kubernetes platform laboratory.
+
+This is NOT a toy Kubernetes demo.
+
+The goal is to build a realistic, production-oriented Kubernetes environment that runs locally on a developer workstation and teaches concepts directly applicable to high-scale production Kubernetes and AWS EKS.
+
+The environment must be reproducible from a clean machine state.
+
+Do not stop after generating YAML or source files.
+
+You MUST actually execute the environment locally, run the tests, diagnose failures, fix them, and rerun the tests.
+
+---
+
+# CORE TECHNOLOGY STACK
+
+Use:
+
+* Docker
+* kind
+* Kubernetes
+* kubectl
+* Helm
+* Cilium
+* Kubernetes Gateway API
+* Cilium Gateway API
+* Envoy through Cilium
+* Argo CD
+* Prometheus
+* Grafana
+* OpenTelemetry
+* lightweight Kubernetes UI
+
+Application stack:
+
+* Java 25
+* Spring Boot 4.1.0
+* Maven
+* Spring Boot Actuator
+* Micrometer
+* Prometheus
+* OpenTelemetry
+
+Do NOT use:
+
+* Minikube as the primary Kubernetes distribution
+* Docker Desktop Kubernetes
+* legacy Kubernetes Ingress as the primary networking API
+* Envoy Gateway as a separate Gateway controller
+* a Service Mesh in the initial implementation
+* unnecessary Kubernetes operators
+* unnecessary infrastructure components
+
+Gateway API MUST be the primary north-south networking API.
+
+---
+
+# IMPORTANT ARCHITECTURAL DISTINCTION
+
+Use Cilium as:
+
+* Kubernetes CNI
+* networking layer
+* NetworkPolicy engine
+* eBPF networking/observability layer
+* Gateway API implementation
+
+Cilium Gateway API uses Envoy as the L7 data-plane proxy.
+
+Do NOT install a separate Envoy Gateway controller unless a concrete technical requirement requires it.
+
+The architecture must conceptually remain:
+
+Kubernetes Gateway API
+↓
+Cilium Gateway implementation
+↓
+Envoy data plane
+↓
+Kubernetes Services
+↓
+Pods
+
+Do not treat Envoy as a separately managed application component.
+
+---
+
+# PHASED IMPLEMENTATION
+
+Implement the project in phases.
+
+Do NOT attempt to install everything blindly in one step.
+
+Use checkpoints:
+
+[CHECKPOINT 1/8] Prerequisites
+[CHECKPOINT 2/8] Version Matrix
+[CHECKPOINT 3/8] kind + Registry
+[CHECKPOINT 4/8] Cilium + Gateway API
+[CHECKPOINT 5/8] Applications
+[CHECKPOINT 6/8] Observability + GitOps + UI
+[CHECKPOINT 7/8] Tests + Failure Scenarios
+[CHECKPOINT 8/8] Reproducibility + Final Validation
+
+After each checkpoint:
+
+1. Validate the current state.
+2. Print a concise summary.
+3. Do not continue if a critical dependency is broken.
+4. Diagnose and fix the problem first.
+
+Never use arbitrary long `sleep` commands to wait for convergence.
+
+Prefer:
+
+kubectl wait
+helm --wait
+readiness checks
+condition checks
+bounded retry loops
+
+Use explicit timeouts such as:
+
+--timeout=180s
+
+---
+
+# VERSION MATRIX
+
+Before installing anything, determine a coherent compatible version matrix.
+
+At minimum document:
+
+Java
+Spring Boot
+Maven
+Kubernetes
+kind
+Cilium
+Gateway API
+Helm
+Argo CD
+Prometheus
+Grafana
+OpenTelemetry
+
+Do NOT independently choose "latest" versions.
+
+Do NOT use:
+
+latest
+main
+HEAD
+
+unless there is a specific documented reason.
+
+Select versions that are mutually compatible.
+
+Verify compatibility using official documentation where possible.
+
+Create:
+
+docs/version-matrix.md
+
+Example:
+
+Java 25
+Spring Boot 4.1.0
+Kubernetes X.Y
+kind X.Y
+Cilium X.Y
+Gateway API X.Y
+Helm X.Y
+Argo CD X.Y
+Prometheus X.Y
+Grafana X.Y
+
+Pin the selected versions in the repository.
+
+---
+
+# ENVIRONMENT DIAGNOSTICS
+
+Create:
+
+make doctor
+
+It must validate:
+
+* Docker CLI
+* Docker daemon
+* kind
+* kubectl
+* Helm
+* Java
+* Maven
+* Java version
+* Maven Java version
+* available CPU
+* available RAM
+* architecture
+* required ports
+* Docker storage availability where practical
+
+Expected output:
+
+Docker              PASS
+kind                PASS
+kubectl              PASS
+Helm                 PASS
+Java                 PASS (25)
+Maven                PASS
+Docker daemon        PASS
+CPU                  PASS
+RAM                  PASS
+Architecture         PASS
+
+Environment: READY
+
+If Java 25 is not the active host JDK:
+
+* DO NOT silently compile with Java 17 or Java 21.
+* Prefer a reproducible containerized Maven build.
+* The application runtime MUST still use Java 25.
+* Clearly report which JDK performs the build.
+
+Java 25 is mandatory for application compilation and runtime.
+
+---
+
+# LOCAL KUBERNETES CLUSTER
+
+Use kind.
+
+Default topology:
+
+1 control-plane
+2 workers
+
+Make worker count configurable.
+
+Create:
+
+kind/cluster.yaml
+
+The kind cluster MUST disable the default CNI so Cilium can be installed as the networking layer.
+
+Provide:
+
+make cluster-create
+make cluster-delete
+make cluster-recreate
+make cluster-status
+make cluster-health
+
+The cluster must be reproducible.
+
+Validate:
+
+kubectl cluster-info
+kubectl get nodes
+kubectl get nodes -o wide
+
+All expected nodes must become Ready.
+
+---
+
+# LOCAL REGISTRY
+
+Create a local Docker registry integrated with kind.
+
+Primary workflow:
+
+Docker build
+↓
+immutable image tag
+↓
+local registry
+↓
+docker push
+↓
+kind/containerd
+↓
+Kubernetes Pod
+
+Do NOT require Docker Hub.
+
+Do NOT use latest.
+
+Use immutable tags such as:
+
+api-service:dev-<git-sha>
+auth-service:dev-<git-sha>
+
+The image build process MUST explicitly handle the networking between:
+
+host
+registry
+kind node containers
+containerd
+
+Do not assume localhost inside a Kubernetes Pod refers to the host.
+
+If the registry path encounters a local runtime edge case, support:
+
+kind load docker-image
+
+as a FALLBACK.
+
+The primary deployment path must remain the local registry.
+
+Provide:
+
+make registry-create
+make registry-status
+make images-build
+make images-push
+
+Document the complete image lifecycle.
+
+---
+
+# CILIUM
+
+Install Cilium as the CNI.
+
+Configure:
+
+* kube-proxy replacement where supported
+* L7 proxy
+* Gateway API
+* NetworkPolicy
+* observability
+
+Cilium must be installed in a way compatible with kind.
+
+Validate:
+
+make cilium-status
+
+Also provide:
+
+make cilium-connectivity-test
+
+The connectivity test must use real Kubernetes networking.
+
+Document:
+
+* CNI
+* kube-proxy
+* kube-proxy replacement
+* eBPF
+* Service networking
+* Pod networking
+* NetworkPolicy
+* L7 proxy
+* Gateway API
+* Envoy
+
+Do not hide the networking architecture.
+
+---
+
+# GATEWAY API
+
+Use Kubernetes Gateway API as the primary networking API.
+
+Install the required Gateway API CRDs explicitly and pin the version.
+
+Use:
+
+GatewayClass
+Gateway
+HTTPRoute
+
+Prepare the architecture for:
+
+GRPCRoute
+TLSRoute
+
+Use stable/standard API versions whenever supported.
+
+Do NOT use Ingress annotations as the primary configuration model.
+
+Architecture:
+
+Client
+↓
+Gateway API
+↓
+Cilium Gateway
+↓
+Envoy
+↓
+HTTPRoute
+↓
+Kubernetes Service
+↓
+Pod
+
+Implement:
+
+* HTTP
+* HTTPS-ready configuration
+* host routing
+* path routing
+* request header manipulation where useful
+* timeout configuration
+* traffic splitting where supported
+* gRPC-ready architecture
+
+The Gateway must expose real application traffic.
+
+---
+
+# LOCAL GATEWAY EXPOSURE
+
+The local environment must work reliably on the developer workstation.
+
+Do not assume that a cloud LoadBalancer exists.
+
+Use a deterministic local exposure mechanism compatible with kind and Cilium.
+
+Possible mechanisms include:
+
+* NodePort
+* host-network Gateway exposure
+* port mappings
+* another documented kind-compatible approach
+
+Select ONE primary mechanism.
+
+Document exactly how:
+
+localhost
+↓
+kind
+↓
+Cilium Gateway
+↓
+application
+
+is achieved.
+
+Provide:
+
+make gateway-status
+make gateway-test
+
+---
+
+# APPLICATIONS
+
+Create two realistic microservices:
+
+api-service
+auth-service
+
+Use EXACTLY:
+
+Java 25
+Spring Boot 4.1.0
+Maven
+
+Do not silently downgrade versions.
+
+Use:
+
+* Spring Boot Actuator
+* Micrometer
+* Prometheus
+* OpenTelemetry
+* structured JSON logging
+* graceful shutdown
+* validation
+* clean configuration
+
+Expose:
+
+/actuator/health
+/actuator/prometheus
+
+Example endpoints:
+
+GET /api/v1/hello
+
+GET /api/v1/auth/check
+
+api-service must call auth-service through a Kubernetes Service.
+
+Do NOT call auth-service using Pod IPs.
+
+Use Kubernetes DNS/service discovery.
+
+---
+
+# VIRTUAL THREADS
+
+Enable Virtual Threads through configuration:
+
+spring.threads.virtual.enabled=true
+
+Use:
+
+Java 25
+
+Also configure:
+
+spring.main.keep-alive=true
+
+when required.
+
+The application must support switching between:
+
+Virtual Threads ON
+Virtual Threads OFF
+
+Do NOT claim that Virtual Threads automatically reduce application heap usage.
+
+Explain:
+
+* platform threads
+* virtual threads
+* blocking I/O
+* concurrency
+* scheduler behavior
+* pinned virtual threads
+* daemon-thread behavior
+* limitations
+* when Virtual Threads help
+* when they do not help
+
+If possible, include a controlled endpoint/workload suitable for demonstrating blocking I/O behavior.
+
+---
+
+# PERFORMANCE LAB
+
+Create a reproducible benchmark.
+
+Provide:
+
+make benchmark
+
+The benchmark must compare:
+
+1. Platform Threads
+2. Virtual Threads
+
+Run controlled load against the real Kubernetes Gateway.
+
+Collect:
+
+* requests/sec
+* throughput
+* p50
+* p95
+* p99
+* error rate
+* CPU
+* memory
+* JVM heap
+* GC
+* container memory
+* pod count
+* HPA state
+
+The benchmark must not fabricate conclusions.
+
+Produce a report containing:
+
+configuration
+hardware
+load profile
+results
+observations
+limitations
+
+Clearly state that benchmark results depend on:
+
+* workstation hardware
+* workload
+* concurrency
+* latency
+* downstream behavior
+* JVM configuration
+* Kubernetes resource limits
+
+---
+
+# DOCKERFILES
+
+Create production-oriented multi-stage Dockerfiles.
+
+Build using Java 25.
+
+Runtime image should be minimal where practical.
+
+Containers must:
+
+* run as non-root
+* use dedicated UID/GID
+* use read-only filesystem where practical
+* drop unnecessary Linux capabilities
+* use proper signal handling
+* support graceful shutdown
+
+Do not use:
+
+privileged: true
+
+unless absolutely required by a platform component.
+
+Application containers must not be privileged.
+
+---
+
+# JVM CONFIGURATION
+
+Use container-aware JVM configuration.
+
+Do NOT blindly add JVM flags.
+
+Prefer Java 25 defaults unless measurement or a concrete operational requirement justifies an override.
+
+Do not blindly force:
+
+-XX:+UseG1GC
+
+If JVM flags are added, document why.
+
+Memory configuration must account for:
+
+* heap
+* metaspace
+* code cache
+* direct buffers
+* native memory
+* thread-related memory
+* JVM overhead
+
+Never assume:
+
+Kubernetes memory limit == JVM heap maximum
+
+unless there is a documented reason.
+
+---
+
+# KUBERNETES RESOURCE MANAGEMENT
+
+Every application Deployment MUST define:
+
+requests
+limits
+
+Initial local values may be:
+
+requests:
+cpu: 100m
+memory: 256Mi
+
+limits:
+cpu: 1000m
+memory: 512Mi
+
+These are starting values only.
+
+The project MUST measure actual behavior before recommending lower values.
+
+Use:
+
+Prometheus
+Grafana
+benchmark
+load-test
+
+to evaluate resource consumption.
+
+Document how to tune:
+
+CPU requests
+CPU limits
+memory requests
+memory limits
+JVM heap
+
+Never claim that Virtual Threads justify an arbitrary low memory limit.
+
+---
+
+# HEALTH CHECKS
+
+Implement:
+
+startupProbe
+readinessProbe
+livenessProbe
+
+Use Actuator health appropriately.
+
+Readiness MUST represent whether the application is ready to receive traffic.
+
+Demonstrate:
+
+startup
+readiness
+liveness
+
+Create a controlled readiness failure test.
+
+---
+
+# HIGH AVAILABILITY
+
+Run multiple application replicas.
+
+Configure where appropriate:
+
+* PodDisruptionBudget
+* topologySpreadConstraints
+* pod anti-affinity
+* rolling updates
+* maxUnavailable
+* maxSurge
+* graceful termination
+* terminationGracePeriodSeconds
+
+Verify that deleting one application Pod does not make the service unavailable.
+
+---
+
+# AUTOSCALING
+
+Implement HPA using real metrics.
+
+Provide:
+
+make load-test
+make test-scaling
+
+The load test must generate traffic against the actual Gateway.
+
+Flow:
+
+Traffic
+↓
+Application metrics
+↓
+Metrics API
+↓
+HPA
+↓
+Replica count
+↓
+More Pods
+
+Do not fake HPA behavior.
+
+Document local limitations.
+
+---
+
+# NETWORK POLICY
+
+Implement Cilium NetworkPolicy.
+
+Example:
+
+api-service
+|
+| ALLOWED
+v
+auth-service
+
+Unauthorized communication must be blocked.
+
+Provide:
+
+make test-network-policy
+
+The test MUST prove:
+
+1. allowed traffic succeeds
+2. forbidden traffic fails
+
+Use real Pods and Services.
+
+---
+
+# SECURITY
+
+Use production-oriented security defaults.
+
+Implement:
+
+* namespace isolation
+* RBAC
+* dedicated ServiceAccounts
+* least privilege
+* NetworkPolicy
+* securityContext
+* non-root containers
+* dropped capabilities
+* seccomp where practical
+* read-only filesystem where practical
+* resource limits
+
+Application workloads must NEVER use:
+
+cluster-admin
+
+Do not hardcode credentials.
+
+---
+
+# NAMESPACES
+
+Use:
+
+platform
+applications
+observability
+argocd
+
+Do not use:
+
+default
+
+for application workloads.
+
+---
+
+# OBSERVABILITY
+
+Install:
+
+Prometheus
+Grafana
+OpenTelemetry
+
+Collect:
+
+* HTTP request rate
+* HTTP errors
+* latency
+* JVM memory
+* JVM CPU
+* GC
+* container CPU
+* container memory
+* pod restarts
+* replica count
+* HPA state
+
+Use RED methodology:
+
+Rate
+Errors
+Duration
+
+Create useful dashboards.
+
+---
+
+# DISTRIBUTED TRACING
+
+Implement:
+
+Client
+↓
+Gateway
+↓
+api-service
+↓
+auth-service
+
+with OpenTelemetry trace propagation.
+
+Verify that a single request can be followed across the services.
+
+Document:
+
+* trace
+* span
+* context propagation
+* sampling
+* trace IDs
+* correlation
+
+---
+
+# STRUCTURED LOGGING
+
+Use JSON logging.
+
+Include fields such as:
+
+timestamp
+level
+service
+traceId
+spanId
+message
+
+Do not introduce an unnecessarily heavy logging stack.
+
+Document future production options:
+
+* Loki
+* OpenSearch
+* CloudWatch
+* other managed logging systems
+
+---
+
+# GITOPS
+
+Install Argo CD.
+
+Architecture:
+
+Git
+↓
+Argo CD
+↓
+Kubernetes
+
+Use declarative configuration.
+
+Use Helm where appropriate.
+
+Provide:
+
+make argocd-status
+make argocd-ui
+
+Demonstrate:
+
+Git change
+↓
+Argo CD detects change
+↓
+Kubernetes reconciles
+↓
+new state becomes active
+
+---
+
+# HELM
+
+Create clean application Helm charts.
+
+Avoid excessive abstraction.
+
+Use:
+
+values.yaml
+values-local.yaml
+
+Support:
+
+* image
+* replicas
+* resources
+* environment
+* probes
+* Service
+* Gateway
+* HTTPRoute
+* NetworkPolicy
+
+---
+
+# KUBERNETES UI
+
+Install a lightweight modern Kubernetes UI.
+
+The UI must allow inspection of:
+
+* nodes
+* namespaces
+* pods
+* deployments
+* services
+* events
+* logs
+* resource usage
+
+Also expose:
+
+Grafana
+Argo CD
+
+Use local port-forwarding or another deterministic local mechanism.
+
+Provide:
+
+make ui
+make grafana
+make argocd-ui
+
+---
+
+# MAKEFILE
+
+Create a single developer interface.
+
+Required commands:
+
+make doctor
+
+make setup
+
+make cluster-create
+make cluster-delete
+make cluster-recreate
+make cluster-status
+make cluster-health
+
+make registry-create
+make registry-status
+
+make cilium-status
+make cilium-connectivity-test
+
+make gateway-status
+make gateway-test
+
+make platform-install
+make platform-status
+
+make images-build
+make images-push
+
+make app-build
+make app-deploy
+make app-status
+
+make test
+make test-smoke
+make test-integration
+make test-failure
+make test-pod-failure
+make test-network-policy
+make test-scaling
+make test-rolling-update
+
+make load-test
+make benchmark
+
+make debug
+make logs
+
+make ui
+make grafana
+make argocd-ui
+
+make test-recreate
+
+make clean
+
+---
+
+# DEBUG COMMAND
+
+Create:
+
+make debug
+
+It must print useful Kubernetes diagnostic information:
+
+kubectl get nodes -o wide
+kubectl get pods -A -o wide
+kubectl get svc -A
+kubectl get endpointslice -A
+kubectl get gateway -A
+kubectl get httproute -A
+kubectl get networkpolicy -A
+kubectl get events -A --sort-by=.lastTimestamp
+kubectl get deployments -A
+kubectl get hpa -A
+
+Also include Cilium diagnostics where available.
+
+The output should help diagnose:
+
+* scheduling failures
+* image failures
+* readiness failures
+* routing failures
+* DNS problems
+* NetworkPolicy problems
+* HPA problems
+
+---
+
+# TESTING STRATEGY
+
+Testing is a FIRST-CLASS requirement.
+
+Tests MUST interact with the actual local Kubernetes cluster.
+
+Do NOT mock Kubernetes for infrastructure integration tests.
+
+Create:
+
+tests/
+smoke/
+integration/
+failure/
+performance/
+
+Use:
+
+Bash + kubectl
+
+for infrastructure validation where appropriate.
+
+Use:
+
+Java/JUnit/Testcontainers
+
+where application-level integration testing provides real value.
+
+Do not add Java test infrastructure merely for the sake of complexity.
+
+---
+
+# SMOKE TESTS
+
+Validate:
+
+* Kubernetes API
+* nodes Ready
+* Cilium healthy
+* Gateway API installed
+* GatewayClass exists
+* Gateway programmed
+* HTTPRoute accepted
+* Gateway reachable
+* applications Ready
+* Services exist
+* HTTP routing works
+* service-to-service communication works
+* Prometheus works
+* Grafana works
+* Argo CD works
+
+Command:
+
+make test-smoke
+
+Exit code MUST be non-zero when a required check fails.
+
+---
+
+# INTEGRATION TESTS
+
+Validate actual traffic:
+
+Client
+↓
+Gateway
+↓
+HTTPRoute
+↓
+api-service
+↓
+auth-service
+
+Test:
+
+* HTTP routing
+* DNS
+* Kubernetes Service discovery
+* readiness behavior
+* service-to-service communication
+* NetworkPolicy
+* graceful shutdown
+* error handling
+
+Use real cluster resources.
+
+---
+
+# FAILURE TESTING
+
+Create controlled failure scenarios.
+
+## Pod failure
+
+Delete an application Pod.
+
+Verify:
+
+* replacement Pod is created
+* Service remains available
+
+Command:
+
+make test-pod-failure
+
+---
+
+## Bad image
+
+Deploy an intentionally invalid image.
+
+Verify:
+
+ImagePullBackOff
+
+Restore the valid image.
+
+---
+
+## Readiness failure
+
+Create a controlled readiness failure.
+
+Verify the unhealthy Pod stops receiving traffic.
+
+---
+
+## NetworkPolicy failure
+
+Block unauthorized traffic.
+
+Verify:
+
+allowed communication succeeds
+
+forbidden communication fails
+
+---
+
+## Rolling update
+
+Deploy version N.
+
+Deploy version N+1.
+
+Verify:
+
+* new Pods become Ready
+* old Pods terminate
+* service remains available
+* no unexpected traffic failures
+
+Command:
+
+make test-rolling-update
+
+---
+
+## Scaling
+
+Generate controlled traffic.
+
+Verify HPA changes replica count when local resources permit.
+
+Command:
+
+make test-scaling
+
+---
+
+## Node failure
+
+Stop/isolate a kind worker where technically practical.
+
+Observe:
+
+* Pod scheduling
+* recovery
+* service availability
+
+Document differences between this simulation and real cloud-node failure.
+
+---
+
+# TEST COMMANDS
+
+## Fast validation
+
+make test
+
+This MUST NOT destroy and recreate the cluster.
+
+It should execute:
+
+* smoke
+* integration
+* relevant failure tests
+
+---
+
+## Full reproducibility validation
+
+make test-recreate
+
+This MUST:
+
+1. destroy cluster
+2. remove relevant local cluster state
+3. recreate cluster
+4. install platform
+5. deploy applications
+6. wait for readiness
+7. run smoke tests
+8. run integration validation
+
+This command is intentionally slower.
+
+Do NOT run it automatically as part of normal `make test`.
+
+---
+
+# PERFORMANCE TEST
+
+Create:
+
+make benchmark
+
+Run:
+
+1. Platform Threads
+2. Virtual Threads
+
+Against the actual Kubernetes Gateway.
+
+Measure:
+
+* RPS
+* throughput
+* p50
+* p95
+* p99
+* errors
+* CPU
+* memory
+* heap
+* GC
+* container memory
+* pod replicas
+
+Produce a report.
+
+Do not fabricate conclusions.
+
+---
+
+# COMPLETE VALIDATION
+
+Create:
+
+make test
+
+Expected output:
+
+========================================
+Kubernetes Local Platform Test
+==============================
+
+Cluster             PASS
+Cilium              PASS
+Gateway API         PASS
+Gateway              PASS
+Applications        PASS
+HTTP Routing        PASS
+Service Discovery   PASS
+NetworkPolicy       PASS
+Observability       PASS
+Argo CD             PASS
+Pod Recovery        PASS
+Rolling Update      PASS
+HPA                 PASS
+
+# RESULT: PASS
+
+Return non-zero exit code on failure.
+
+---
+
+# REPRODUCIBILITY
+
+After implementation:
+
+1. create cluster
+2. install platform
+3. deploy applications
+4. run tests
+5. destroy cluster
+6. recreate cluster
+7. run smoke tests again
+
+The second run must succeed without manual intervention.
+
+---
+
+# LOCAL RESOURCE MODES
+
+Provide:
+
+make setup
+
+and optionally:
+
+make setup-lite
+
+Normal mode should include:
+
+* Cilium
+* Gateway API
+* applications
+* Prometheus
+* Grafana
+* OpenTelemetry
+* Argo CD
+* UI
+
+Lite mode may disable optional components when necessary.
+
+Lite mode MUST NOT remove core Kubernetes learning concepts:
+
+* Pods
+* Deployments
+* Services
+* Gateway API
+* Cilium
+* NetworkPolicy
+* HPA where feasible
+
+---
+
+# REPOSITORY STRUCTURE
+
+Use a clean structure similar to:
+
+kubernetes-lab/
+│
+├── README.md
+├── Makefile
+│
+├── kind/
+│   └── cluster.yaml
+│
+├── scripts/
+│   ├── doctor.sh
+│   ├── cluster-create.sh
+│   ├── cluster-delete.sh
+│   ├── registry.sh
+│   ├── platform-install.sh
+│   └── wait-for-ready.sh
+│
+├── platform/
+│   ├── cilium/
+│   ├── gateway/
+│   ├── observability/
+│   ├── argocd/
+│   └── ui/
+│
+├── apps/
+│   ├── api-service/
+│   └── auth-service/
+│
+├── helm/
+│   └── applications/
+│
+├── tests/
+│   ├── smoke/
+│   ├── integration/
+│   ├── failure/
+│   └── performance/
+│
+└── docs/
+├── version-matrix.md
+├── 01-kubernetes-basics.md
+├── 02-pods-and-deployments.md
+├── 03-services-and-dns.md
+├── 04-cilium.md
+├── 05-gateway-api.md
+├── 06-envoy.md
+├── 07-health-checks.md
+├── 08-resources.md
+├── 09-autoscaling.md
+├── 10-security.md
+├── 11-observability.md
+├── 12-gitops.md
+├── 13-failure-testing.md
+├── 14-virtual-threads.md
+├── 15-performance.md
+└── 16-production-mapping.md
+
+Adapt the structure when technically justified.
+
+---
+
+# DOCUMENTATION
+
+README.md must explain:
+
+1. What this project is.
+2. Why kind.
+3. Why Cilium.
+4. Why Gateway API.
+5. Why Cilium Gateway API.
+6. Why Envoy is not installed separately.
+7. Why NGINX Ingress is not used as the primary networking API.
+8. Why Service Mesh is not initially installed.
+9. Why Java 25.
+10. Why Spring Boot 4.1.0.
+11. Why Virtual Threads.
+12. How to install prerequisites.
+13. How to run the environment.
+14. How to run tests.
+15. How to run benchmarks.
+16. How to access the UIs.
+17. How to debug failures.
+18. How the architecture maps to production.
+
+Every major component should explain:
+
+* what it is
+* why it exists
+* what problem it solves
+* how it works
+* how to inspect it
+* how to break it
+* how to recover it
+* production equivalent
+
+---
+
+# PRODUCTION MAPPING
+
+Document:
+
+LOCAL → PRODUCTION
+
+kind
+→ AWS EKS
+
+local registry
+→ Amazon ECR
+
+Cilium
+→ Cilium / AWS networking strategy
+
+Gateway API
+→ production Gateway API implementation
+
+Cilium Gateway / Envoy
+→ production Gateway / Envoy-based architecture
+
+local storage
+→ EBS / EFS
+
+Prometheus
+→ production Prometheus / managed metrics
+
+Grafana
+→ production Grafana / managed Grafana
+
+OpenTelemetry
+→ production telemetry backend
+
+Argo CD
+→ production Argo CD
+
+local secrets
+→ AWS Secrets Manager / External Secrets
+
+Clearly distinguish:
+
+Kubernetes concepts
+
+from:
+
+local implementation details.
+
+Do NOT claim that kind behaves identically to EKS.
+
+---
+
+# EXECUTION REQUIREMENT
+
+You MUST execute the implementation.
+
+Do NOT finish after generating files.
+
+Perform the work methodically:
+
+[CHECKPOINT 1/8]
+Validate prerequisites.
+
+[CHECKPOINT 2/8]
+Create and validate version matrix.
+
+[CHECKPOINT 3/8]
+Create kind cluster and registry.
+
+[CHECKPOINT 4/8]
+Install and validate Cilium + Gateway API.
+
+[CHECKPOINT 5/8]
+Build and deploy Java 25 / Spring Boot 4.1.0 applications.
+
+[CHECKPOINT 6/8]
+Install observability, GitOps and UI.
+
+[CHECKPOINT 7/8]
+Run smoke, integration, failure and performance tests.
+
+[CHECKPOINT 8/8]
+Destroy, recreate and validate again.
+
+After each checkpoint print:
+
+* status
+* important resources
+* failures if any
+* next step
+
+Use bounded timeouts.
+
+Never wait indefinitely.
+
+Prefer:
+
+kubectl wait
+helm --wait
+condition checks
+bounded retries
+
+over:
+
+sleep 60
+sleep 120
+
+---
+
+# FAILURE HANDLING
+
+If anything fails:
+
+DO NOT simply report the error.
+
+Perform:
+
+1. Inspect command output.
+2. Inspect Kubernetes events.
+3. Inspect Pod status.
+4. Inspect logs.
+5. Inspect Service status.
+6. Inspect Gateway status.
+7. Inspect HTTPRoute status.
+8. Inspect Cilium status.
+9. Identify root cause.
+10. Fix the implementation.
+11. Rerun the failed validation.
+12. Continue.
+
+Do not hide errors.
+
+Do not mark a component PASS if it was not actually validated.
+
+---
+
+# FINAL ACCEPTANCE CRITERIA
+
+The project is complete ONLY when:
+
+* `make doctor` passes
+* version matrix is documented
+* kind cluster is reproducible
+* multi-node cluster works
+* local registry works
+* Cilium is healthy
+* Gateway API works
+* Gateway routes real traffic
+* Envoy data plane works through Cilium
+* Spring Boot 4.1.0 runs on Java 25
+* Virtual Threads can be enabled/disabled
+* applications expose metrics
+* distributed tracing works
+* Prometheus works
+* Grafana works
+* Argo CD works
+* Kubernetes UI works
+* NetworkPolicy works
+* HPA works when local resources permit
+* Pods recover after failure
+* rolling deployments work
+* automated tests pass
+* benchmark executes
+* cluster can be destroyed
+* cluster can be recreated
+* validation passes after recreation
+
+---
+
+# FINAL REPORT
+
+At the end provide:
+
+1. Final architecture.
+2. Version matrix.
+3. Repository structure.
+4. Prerequisites.
+5. Setup commands.
+6. Test commands.
+7. Benchmark commands.
+8. UI access commands.
+9. Test results.
+10. Benchmark results.
+11. Known limitations.
+12. Production mapping.
+13. Problems encountered and how they were fixed.
+14. Recommended next learning phase.
+
+DO NOT state that the project is complete unless the environment was actually executed and validated.
+
+The final mindset should be:
+
+BUILD
+→ RUN
+→ OBSERVE
+→ TEST
+→ BREAK
+→ DIAGNOSE
+→ FIX
+→ TEST AGAIN
+→ DESTROY
+→ RECREATE
+→ VALIDATE
+
+[1]: https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/?utm_source=chatgpt.com "Gateway API Support — Cilium 1.20.0 documentation"
+[2]: https://docs.spring.io/spring-boot/system-requirements.html?utm_source=chatgpt.com "System Requirements :: Spring Boot"

@@ -1,0 +1,134 @@
+# ---------------------------------------------------------------------------
+# Cilium — the lab's single networking layer (D4, FR-011, FR-022..FR-025).
+#
+# One component supplies CNI, the kube-proxy replacement, the NetworkPolicy
+# engine, kernel-level observability (Hubble) AND the Gateway API
+# implementation whose data plane is Envoy. That last point is what keeps
+# FR-029 satisfied: Envoy is here as Cilium's data plane, not as a separately
+# managed gateway controller. No Envoy Gateway, no NGINX Gateway Fabric, no
+# service mesh, no MetalLB.
+#
+# Installed by scripts/platform.sh with --version ${CILIUM_CHART_VERSION} from
+# versions.env. This file carries no version of its own, deliberately.
+# ---------------------------------------------------------------------------
+
+# kind's API server is reachable from inside the cluster only via the
+# control-plane node's address; with kube-proxy disabled there is no
+# kubernetes.default Service to fall back on, so Cilium must be told directly.
+# scripts/platform.sh supplies k8sServiceHost/k8sServicePort on the command
+# line because both are discovered at install time, not declared.
+
+# --- FR-023: replace kube-proxy entirely -----------------------------------
+# The cluster is created with kubeProxyMode:none, so this is the *only*
+# service-routing datapath. Enabling the replacement alongside a running
+# kube-proxy would produce a cluster where neither path is the one under test.
+kubeProxyReplacement: true
+
+# --- FR-022 / FR-025: kernel datapath ---------------------------------------
+# Direct routing between nodes on the shared docker network — no tunnel
+# encapsulation to reason about, one fewer layer between a packet and an
+# explanation.
+routingMode: native
+autoDirectNodeRoutes: true
+# The kind pod CIDR. Native routing needs to know which addresses are pod
+# addresses so it does not masquerade traffic that should stay internal.
+ipv4NativeRoutingCIDR: "10.244.0.0/16"
+
+ipam:
+  mode: kubernetes
+
+# --- FR-022: L7 proxy, and the Gateway API implementation -------------------
+l7Proxy: true
+
+gatewayAPI:
+  enabled: true
+  # Cilium's Gateway API support requires the CRDs to already exist, which is
+  # why the `gateway-api` checkpoint runs before this chart is upgraded into
+  # its Gateway-serving configuration.
+  enableAlpn: true
+  enableAppProtocol: true
+
+envoy:
+  # Envoy as a DaemonSet, owned by Cilium. This is the gateway's data plane.
+  enabled: true
+  # NO custom log format here, deliberately, and this is a scar rather than a
+  # preference. Setting `envoy.log.format` to a JSON pattern broke the chart's
+  # own bootstrap-config template — the rendered ConfigMap came out as
+  # {"Error":"error converting YAML to JSON: yaml: line 216: did not find
+  # expected key"}, and cilium-envoy then crash-looped on
+  # "no such field: 'Error'". The failure surfaced three layers from its cause:
+  # a Helm value produced a broken ConfigMap which produced an Envoy protobuf
+  # error, and nothing in that chain named the log format.
+  #
+  # Envoy's default log format is perfectly readable, and FR-082's structured-log
+  # requirement is about the SERVICES' logs, which the OTel agent handles.
+
+# --- FR-054, FR-073: policy enforcement ------------------------------------
+# "default" means: a workload with no policy selecting it is unrestricted; one
+# with any policy selecting it is restricted to what that policy allows. The
+# chart's own default-deny NetworkPolicies then close everything in hydra-app
+# and hydra-data. Setting "always" here would deny kube-system traffic before
+# any policy exists and deadlock the cluster's own bootstrap.
+policyEnforcementMode: "default"
+policyAuditMode: false
+
+# --- FR-022: kernel-level observability ------------------------------------
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    # Disabled in reduced mode by platform.sh (D18, FR-091). The relay stays on
+    # either way, so `hubble observe` still works from the CLI — what reduced
+    # mode removes is the web UI, not the visibility.
+    enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      # Plain commas. The backslash-escaped form (`source_ip\,source_namespace`)
+      # that appears throughout Cilium's documentation exists only because
+      # `helm --set` splits its argument on commas — in a VALUES FILE the
+      # backslashes are literal, and the agent rejects the label list and
+      # refuses to start. Verified: this exact line with escapes produced
+      # `invalid labelsContext value: source_ip\` and a fatal agent crash-loop.
+      - httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction
+
+# --- Operator ---------------------------------------------------------------
+operator:
+  # One replica: a three-node kind cluster has nowhere useful to put a second,
+  # and a permanently Pending operator pod is a false alarm in every dump.
+  replicas: 1
+  prometheus:
+    enabled: true
+    port: 9963
+
+# --- Observability of Cilium itself ----------------------------------------
+prometheus:
+  enabled: true
+  port: 9962
+
+# --- Resource envelope ------------------------------------------------------
+# Sized for a workstation. These are starting points, not measured settings —
+# see docs/resource-tuning.md before changing them.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# kind nodes mount the host's bpf filesystem already; letting the chart try to
+# mount it again fails on a second install.
+bpf:
+  masquerade: true
+
+# The security context Cilium needs to program the kernel datapath. Recorded
+# explicitly rather than left to the chart default, because "the CNI is
+# privileged" is a real property of this design and docs/networking.md explains
+# why it is unavoidable for a kernel datapath.
+securityContext:
+  privileged: false

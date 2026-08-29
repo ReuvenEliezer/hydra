@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Headlamp — the cluster console (FR-087, D16).
+#
+# FR-087 says *install a console in the cluster* covering nodes, namespaces,
+# pods, deployments, services, events, logs and resource usage. Headlamp covers
+# all eight and runs in-cluster.
+#
+# k9s was considered and rejected on the wording: it is a terminal client
+# installed on the HOST, not a console installed in the cluster, and FR-088's
+# "each behind its own access operation" implies a reachable endpoint. The
+# Kubernetes Dashboard was rejected as heavier and more awkward to expose.
+# ---------------------------------------------------------------------------
+
+replicaCount: 1
+
+config:
+  # Reached through a port-forward from the workstation.
+  baseURL: ""
+  pluginsDir: /headlamp/plugins
+
+serviceAccount:
+  create: true
+  name: headlamp
+
+clusterRoleBinding:
+  create: true
+  # cluster-admin, and this is the one place in the lab where that is true.
+  # Said plainly rather than buried: a read-only console would be the better
+  # posture, and Headlamp's in-cluster mode uses its service account for every
+  # action a user takes in the UI — so a read-only binding would make the UI
+  # look broken rather than make it safe. The honest form is to grant what it
+  # needs, confine it to a loopback-only port-forward, and record it in
+  # docs/production-mapping.md as something production replaces with per-user
+  # SSO and RBAC-scoped tokens.
+  clusterRoleName: cluster-admin
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits:   {memory: 256Mi}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  privileged: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]

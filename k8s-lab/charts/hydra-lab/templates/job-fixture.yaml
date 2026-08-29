@@ -1,0 +1,244 @@
+{{/*
+  Lab fixture (D7, FR-052a, FR-052b, data-model §6).
+
+  Seeds tenants and users after the schema exists and before any Deployment pod
+  accepts traffic.
+
+  THE ANTI-DRIFT GUARD IS PART OF THE JOB, NOT A LATER TEST
+  ---------------------------------------------------------
+  The spec names fixture drift as an edge case precisely because a fixture can
+  apply perfectly — every INSERT succeeds, every row count is right — and still
+  produce accounts that cannot sign in. A BCrypt hash computed with different
+  parameters, a username case mismatch, a tenant marked INACTIVE: all of them
+  pass a row count and fail a login.
+
+  So this Job does NOT report success on INSERT. It ends by performing one REAL
+  SIGN-IN through auth-service and fails the Job if the credential is rejected.
+  Seeding that cannot authenticate is a failed seed, and this is where that must
+  surface — not three suites later, where it will look like an auth bug.
+
+  The hash is computed AT RUN TIME by Postgres itself — `pgcrypto`'s
+  `crypt(password, gen_salt('bf', 10))` produces a `$2a$10$...` BCrypt hash,
+  which is exactly the form Spring Security's BCryptPasswordEncoder reads at its
+  default strength. Verified against the pinned image before this was written.
+
+  Computing it rather than pasting a literal matters for two reasons: a hash in
+  a values file is a credential in the tracked tree even when the plaintext
+  beside it is deliberately public (FR-053), and a pasted hash rots silently if
+  the service's encoder strength ever changes — producing accounts that verify
+  perfectly by themselves and are rejected by the service. Which is precisely
+  the drift the sign-in guard below exists to catch, so the two mechanisms
+  cover each other.
+
+  WHY NO `gamma`
+  --------------
+  values.yaml seeds acme and beta only — matching EdgeConformanceFixture's
+  constants exactly, so Hydra's existing suite finds its tenants with nothing
+  overridden (research.md A7). `gamma` is added by
+  tests/integration/new-tenant.sh AFTER the gateway is programmed, which is how
+  SC-007 ("a new tenant needs no gateway change") is DEMONSTRATED rather than
+  asserted. Seeding it here would quietly destroy that test.
+
+  WHAT THIS FIXTURE DELIBERATELY BYPASSES (FR-052b)
+  -------------------------------------------------
+  Seeding before traffic means auth-service's users table is never empty, so
+  first-boot bootstrap never runs. BootstrapService is @Profile({"local"}) and
+  the lab runs `test`, so it is doubly inactive. The consequence is honest and
+  recorded in docs/known-gaps.md: the concurrent-bootstrap race is neither
+  proven safe nor proven broken here.
+*/}}
+{{- if .Values.fixture.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydra-fixture
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+    app.kubernetes.io/name: hydra-fixture
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # post-install rather than pre-install, and the reason matters: the guard
+    # below signs in through the running auth-service, which does not exist
+    # until the Deployments are up. The ordering FR-052a requires — fixture
+    # before traffic — is preserved by the readiness gate instead: the
+    # Deployments' readiness probes include the database, and `make app-deploy`
+    # does not report success until this Job has completed.
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "hydra-lab.labels" . | nindent 8 }}
+        app.kubernetes.io/name: hydra-fixture
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hydra-fixture
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70          # the postgres image's own user
+        runAsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: fixture
+          # The Postgres image, for psql. Already pinned in the matrix, already
+          # pulled, and it carries exactly the two tools this Job needs.
+          image: {{ required "postgres image is required — app.sh passes it from versions.env (FR-006)" .Values.postgres.image | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          env:
+            - name: PGHOST
+              value: "postgres.{{ .Values.global.dataNamespace }}.svc.cluster.local"
+            - name: PGDATABASE
+              value: {{ .Values.auth.database | quote }}
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.postgres }}, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.postgres }}, key: password}}
+            - name: LAB_USERNAME
+              value: {{ .Values.fixture.username | quote }}
+            - name: LAB_PASSWORD
+              value: {{ .Values.fixture.password | quote }}
+            - name: AUTH_URL
+              value: "http://auth-service.{{ .Values.global.appNamespace }}.svc.cluster.local:{{ .Values.auth.port }}"
+            - name: BASE_DOMAIN
+              value: {{ .Values.global.baseDomain | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "=== fixture: seeding tenants and users ==="
+
+              # Bounded, condition-based wait for Postgres. Not a fixed sleep
+              # (FR-015): a duration guess fails on a slow machine and reports
+              # the fixture broken when the database was simply still starting.
+              deadline=$(( $(date +%s) + 300 ))
+              until pg_isready -q; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "FATAL: Postgres not ready within 300s"
+                  exit 1
+                fi
+                sleep 3   # WAIT_POLL_INTERVAL: polling interval, not a readiness signal
+              done
+
+              # One transaction, all-or-nothing. A half-applied fixture is worse
+              # than none: it looks seeded and behaves inconsistently.
+              psql -v ON_ERROR_STOP=1 --single-transaction <<SQL
+              -- pgcrypto gives us BCrypt directly, so no extra tooling has to
+              -- exist in this image to produce a hash the service will accept.
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+              {{- range .Values.fixture.tenants }}
+              -- Idempotent by construction (FR-052a): identical on every
+              -- recreation, no manual step, safe to re-run.
+              INSERT INTO tenants (id, name, url_identifier, status, created_at)
+              VALUES (gen_random_uuid(), '{{ .name }}', '{{ .identifier }}', 'ACTIVE', now())
+              ON CONFLICT (url_identifier) DO NOTHING;
+
+              INSERT INTO users (id, tenant_id, username, password_hash, status)
+              SELECT gen_random_uuid(), t.id, '${LAB_USERNAME}',
+                     crypt('${LAB_PASSWORD}', gen_salt('bf', 10)), 'ACTIVE'
+                FROM tenants t
+               WHERE t.url_identifier = '{{ .identifier }}'
+              ON CONFLICT (tenant_id, username) DO NOTHING;
+
+              -- 'USER', not 'ROLE_USER'. The Role enum persists as
+              -- EnumType.STRING, so the stored value is the enum CONSTANT
+              -- name; 'ROLE_USER' is the Spring Security AUTHORITY string
+              -- derived from it at runtime (Role.USER.authority()). Hibernate
+              -- authored a CHECK constraint on this column, so getting it wrong
+              -- is a loud failure rather than a silent one:
+              --   new row for relation "user_roles" violates check constraint
+              --   "user_roles_role_check"
+              -- which is exactly the behaviour that makes ddl-auto-authored
+              -- schema worth having here.
+              INSERT INTO user_roles (user_id, role)
+              SELECT u.id, 'USER'
+                FROM users u JOIN tenants t ON t.id = u.tenant_id
+               WHERE t.url_identifier = '{{ .identifier }}'
+                 AND u.username = '${LAB_USERNAME}'
+                 AND NOT EXISTS (SELECT 1 FROM user_roles r
+                                  WHERE r.user_id = u.id AND r.role = 'USER');
+              {{- end }}
+              SQL
+
+              echo "=== fixture: what is actually in the database ==="
+              psql -Atc "SELECT 'tenant: ' || url_identifier || ' (' || status || ')' FROM tenants ORDER BY url_identifier;"
+              psql -Atc "SELECT 'user:   ' || u.username || '@' || t.url_identifier || ' hash=' || left(u.password_hash, 7) || '...' FROM users u JOIN tenants t ON t.id = u.tenant_id ORDER BY t.url_identifier;"
+
+              # ---------------------------------------------------------------
+              # THE GUARD (D7). Row counts are NOT success.
+              #
+              # A fixture can apply perfectly and still produce accounts that
+              # cannot sign in — a hash at the wrong cost factor, a username
+              # case mismatch, a tenant marked INACTIVE. All of those pass every
+              # assertion above. Only an actual sign-in distinguishes a seeded
+              # database from a working one.
+              # ---------------------------------------------------------------
+              echo "=== fixture: verifying a real sign-in ==="
+              PRIMARY="{{ (index .Values.fixture.tenants 0).identifier }}"
+
+              deadline=$(( $(date +%s) + 300 ))
+              # /actuator/health, NOT /actuator/health/readiness. The group
+              # endpoints return 401 in this repository — SecurityCommons
+              # permits the exact path and nothing beneath it — so waiting on
+              # the readiness group waits forever on an auth failure. Observed:
+              # this Job sat in the wait loop for its full budget while all
+              # three auth-service replicas were Running and Ready.
+              until wget -q -O /dev/null "${AUTH_URL}/actuator/health" 2>/dev/null; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "FATAL: auth-service did not become ready within 300s; the seed is unverified"
+                  echo "       Reporting FAILURE rather than success: an unverified seed is not a"
+                  echo "       seeded environment, and FR-116 forbids reporting one as the other."
+                  exit 1
+                fi
+                sleep 3   # WAIT_POLL_INTERVAL: polling interval, not a readiness signal
+              done
+
+              # wget rather than curl: the Postgres image carries wget and not
+              # curl, checked against the pinned image rather than assumed.
+              # --server-response puts the status line on stderr, which is the
+              # only way busybox wget reports a non-2xx code at all.
+              set +e
+              response="$(wget -q -O /tmp/login.json --server-response \
+                  --header="Host: ${PRIMARY}.${BASE_DOMAIN}" \
+                  --header='Content-Type: application/json' \
+                  --post-data="{\"username\":\"${LAB_USERNAME}\",\"password\":\"${LAB_PASSWORD}\"}" \
+                  "${AUTH_URL}/api/v1/auth/login" 2>&1)"
+              rc=$?
+              set -e
+
+              if [ "$rc" -eq 0 ] && grep -q '"accessToken"\|"token"' /tmp/login.json 2>/dev/null; then
+                echo "OK: the seeded credential authenticates against ${PRIMARY}.${BASE_DOMAIN}"
+                echo "    (a token was issued, so the tenant resolved, the user exists and the hash verifies)"
+                exit 0
+              fi
+
+              echo "FATAL: the seed applied but the credential is REJECTED."
+              echo "       Rows were inserted and sign-in fails. That is fixture drift, and a"
+              echo "       seed that cannot authenticate is a failed seed (D7)."
+              echo "       Most likely causes, in order:"
+              echo "         - the BCrypt cost factor does not match the service's encoder"
+              echo "         - the tenant did not resolve from the Host header"
+              echo "         - the user's status is not ACTIVE, or has no role"
+              echo "       wget said:"
+              echo "${response}" | head -20
+              echo "       body:"
+              cat /tmp/login.json 2>/dev/null || echo "(empty)"
+              exit 1
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# The root Application (FR-083, D15).
+#
+# TEMPLATE — rendered by scripts/platform.sh, which substitutes the repository
+# URL that scripts/gitops.sh created.
+#
+# What this demonstrates, and what it deliberately does not:
+#
+#   IT DOES     reconcile tracked desired state without a deploy command. The
+#               demonstration is changing a tracked replica count and watching
+#               the cluster converge (tests/integration/gitops-converge.sh).
+#
+#   IT DOES NOT manage Secrets. The tracked tree carries Secret NAMES; the
+#               Secrets themselves are created out of band by setup (FR-085).
+#               There is no sealed-secrets, no external-secrets operator and no
+#               encrypted blob in git — those are real answers to a real
+#               problem, and adopting one would be a decision this feature has
+#               no mandate to make. docs/production-mapping.md names the
+#               options instead.
+# ---------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hydra-lab
+  namespace: hydra-delivery
+  finalizers:
+    # Cascade deletion, so removing the Application removes what it created
+    # rather than orphaning it. Without this, `kubectl delete application` looks
+    # like a rollback and leaves the entire workload running.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ${GITOPS_REPO_URL}
+    targetRevision: ${GITOPS_BRANCH}
+    path: gitops
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hydra-app
+  syncPolicy:
+    automated:
+      # Converge on drift, including drift caused by a human running kubectl.
+      # That is the property being demonstrated: the tracked state wins.
+      selfHeal: true
+      # Delete resources removed from git. On by default here because a GitOps
+      # loop that only ever adds is not a loop — but it is exactly the setting
+      # that makes an accidental `git rm` an outage, which is why production
+      # environments often disable it. Named rather than left to be discovered.
+      prune: true
+    syncOptions:
+      # The namespaces are created by the `namespaces` checkpoint before
+      # anything else exists (T025), so Argo CD must not try to own them.
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+      # Server-side apply: the chart's objects are large enough that the
+      # last-applied-configuration annotation runs into the metadata size limit.
+      - ServerSideApply=true
+  ignoreDifferences:
+    # The HPA owns the replica count at runtime. Without this, Argo CD sees
+    # every scale-up as drift from the tracked value and immediately scales it
+    # back down — the two controllers fight, and the visible symptom is an
+    # autoscaler that "does not work".
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

@@ -1,0 +1,92 @@
+{{/*
+  Redis (D14, FR-051, FR-053, FR-056).
+
+  Same pinned image as docker-compose.yml. Redis has been AGPLv3 since 8.0, so
+  the minor is pinned deliberately — a floating tag would be a licensing change
+  as well as a version change.
+
+  FR-056 is worth reading before touching this: Redis unavailability is a DRILL
+  in this lab, not an accident. Rate limiting fails CLOSED by default
+  (`rate-limit.fail-open: false`), so losing Redis rejects requests rather than
+  passing them through unthrottled. tests/failure/cache-down.sh removes Redis on
+  purpose and asserts rejection, so that behaviour is a known property rather
+  than a discovery made during an incident.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "hydra-lab.selector" (dict "name" "redis" "component" "cache") | nindent 4 }}
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: {{ .Values.global.dataNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+    {{- include "hydra-lab.selector" (dict "name" "redis" "component" "cache") | nindent 4 }}
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hydra-lab.selector" (dict "name" "redis" "component" "cache") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hydra-lab.labels" . | nindent 8 }}
+        {{- include "hydra-lab.selector" (dict "name" "redis" "component" "cache") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 999         # the redis user in the alpine image
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: redis
+          image: {{ required "redis image is required — app.sh passes it from versions.env (FR-006)" .Values.redis.image | quote }}
+          # requirepass from the Secret, never a literal. Note the shell form is
+          # needed to expand the variable — the alternative is a config file
+          # containing the password, which would then have to come from a
+          # Secret anyway.
+          command: ["sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes --dir /data"]
+          ports:
+            - {name: redis, containerPort: 6379}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.redis }}, key: password}}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          readinessProbe:
+            # A real command against an authenticated connection. `redis-cli
+            # ping` without the password returns NOAUTH, which is a *response* —
+            # so a naive ping check passes on a server no client can use.
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage }}

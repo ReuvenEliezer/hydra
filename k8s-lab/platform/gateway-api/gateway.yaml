@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# The Gateway (FR-026..FR-034, FR-040, contracts/platform-topology.md).
+#
+# ONE listener. ONE wildcard certificate. ZERO per-tenant objects.
+#
+# That is the property the whole feature turns on. A tenant is one DNS label in
+# front of the base domain, so `*.localhost` covers every tenant that exists
+# and every tenant that ever will. Adding a tenant is a database insert
+# (FR-040, SC-007) — it touches nothing here, and if it ever needed to, Clause 5
+# of the transparent edge contract would have been violated.
+#
+# Host is never rewritten on this path (FR-036). Routing is by path; the Host
+# header travels untouched through TLS termination and host-based matching,
+# because tenant identity comes solely from Host. A gateway that rewrites it is
+# not a degradation for Hydra — it is a total outage in which every tenant
+# resolves to `unknown`. hostile-edge/host-rewrite.yaml exists to prove the
+# suite can detect exactly that.
+#
+# Applied by the `gateway` checkpoint in scripts/platform.sh, NOT by the
+# umbrella chart: US1 must reach a Programmed Gateway with no chart installed.
+# ---------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hydra-gateway
+  namespace: hydra-app
+  annotations:
+    # Cilium's Gateway API implementation creates a Service for the Gateway.
+    # LoadBalancer is useless here — on macOS the Docker bridge is not routable
+    # from the host, so an allocated address is unreachable however correct it
+    # looks. NodePort with a FIXED port is the one deterministic exposure
+    # mechanism (FR-030, D8): the port is declared in versions.env and bound by
+    # kind's extraPortMappings, so the address is knowable before the cluster
+    # exists.
+    io.cilium/lb-mode: nodeport
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      # One wildcard hostname covering every tenant (FR-040).
+      hostname: "*.localhost"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            group: ""
+            # Created by scripts/certs.sh at setup time. The certificate and key
+            # never enter the tracked tree (FR-053) — this is a reference to a
+            # name, which is all the tracked tree ever carries.
+            name: hydra-lab-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.localhost"
+      # TLS is blocking with no plain-HTTP fallback (FR-032). This listener
+      # exists so a plain-HTTP request meets a redirect rather than a refused
+      # connection — a much clearer thing to diagnose — and the redirect route
+      # is what makes it a redirect rather than a second way in.
+      allowedRoutes:
+        namespaces:
+          from: Same

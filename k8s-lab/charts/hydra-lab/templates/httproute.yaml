@@ -1,0 +1,147 @@
+{{/*
+  HTTPRoutes (FR-028, FR-031, FR-036, FR-041).
+
+  Attached to the PLATFORM-installed Gateway by parentRefs. The Gateway itself
+  lives in platform/gateway-api/ and not here, deliberately: US1 must reach a
+  Programmed Gateway with no chart installed, so the chart attaches to it rather
+  than owning it.
+
+  ROUTING IS BY PATH, AND `Host` IS NEVER TOUCHED (FR-036). Both services sit
+  behind a SINGLE tenant hostname, addressed exactly as a browser addresses them
+  (FR-031) — `acme.localhost` serves auth and orders alike; there is no
+  `auth.acme.localhost`. Tenant identity comes from `Host` and from nothing else,
+  so a rewrite here would take every tenant offline at once rather than degrade
+  anything. hostile-edge/host-rewrite.yaml makes that mistake on purpose so the
+  conformance suite can be shown to catch it.
+
+  PATH PREFIXES ARE THE REAL ONES, taken from the controllers rather than from
+  the topology contract's illustration:
+
+    auth-service   /api/v1/auth      AuthController
+                   /api/v1/tenant    TenantController
+                   /api/v1/admin     AdminController
+                   /.well-known      JwksController
+    order-service  /api/orders       OrderController   <-- NOT /api/v1/orders
+
+  contracts/platform-topology.md drew this as `/api/v1/orders/**`. It is
+  `/api/orders`. The contract was written from the shape auth-service uses;
+  order-service never adopted the version prefix. Routing to the documented path
+  would have produced a 404 on every order request, so the route follows the
+  code and docs/known-gaps.md records the divergence.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hydra-api
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      namespace: {{ .Values.gateway.namespace }}
+      sectionName: https
+  # A wildcard, not a list of tenants. This is FR-040 in one line: adding a
+  # tenant is a database insert and touches nothing here. Listing hostnames
+  # would make every new tenant a gateway change, which is exactly what Clause 5
+  # of the transparent edge contract forbids.
+  hostnames:
+    - "*.{{ .Values.global.baseDomain }}"
+  rules:
+    # --- auth-service ------------------------------------------------------
+    - matches:
+        - path: {type: PathPrefix, value: /api/v1/auth}
+        - path: {type: PathPrefix, value: /api/v1/tenant}
+        - path: {type: PathPrefix, value: /api/v1/admin}
+        - path: {type: PathPrefix, value: /.well-known}
+      filters:
+        {{- if .Values.route.xffReplace }}
+        # FR-041 / D12 route (1): REPLACE, never append.
+        #
+        # This is a security boundary and not a preference. ClientIpResolver
+        # trusts the LEFT-MOST X-Forwarded-For value with no validation, so a
+        # gateway that appends leaves a client-supplied value in front — and
+        # every per-address rate limit becomes forgeable by anyone who can set a
+        # header. `set` overwrites whatever arrived.
+        #
+        # The value is Envoy's own view of the peer. If Cilium's Gateway API
+        # appends its own XFF *after* filters run, this is not sufficient and
+        # D12's route (2) — a CiliumClusterwideEnvoyConfig overriding
+        # use_remote_address / xff_num_trusted_hops / skip_xff_append — is
+        # applied instead. tests/integration/xff-forgery.sh decides empirically
+        # which of the two is in force; if neither yields replace semantics,
+        # that is a finding for the Edge Finding and NOT a lab defect to paper
+        # over (FR-113, FR-116).
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-For
+                value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+        {{- end }}
+        # FR-028's header-manipulation surface, demonstrated on a header that
+        # cannot break anything: a marker the smoke suite reads back to prove
+        # gateway filters are actually running on this route.
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: X-Hydra-Lab-Route
+                value: "auth-service"
+      backendRefs:
+        - name: auth-service
+          port: {{ .Values.auth.port }}
+      timeouts:
+        # FR-028's route-level timeout. Generous, because a timeout that fires
+        # during a cold JVM start produces a 504 that reads as a routing fault
+        # and sends the investigation to the gateway instead of the pod.
+        request: {{ .Values.route.timeout }}
+
+    # --- order-service -----------------------------------------------------
+    - matches:
+        - path: {type: PathPrefix, value: /api/orders}
+        - path: {type: PathPrefix, value: /api/test-orders}
+      filters:
+        {{- if .Values.route.xffReplace }}
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-For
+                value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+        {{- end }}
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: X-Hydra-Lab-Route
+                value: "order-service"
+      backendRefs:
+        - name: order-service
+          port: {{ .Values.order.port }}
+      timeouts:
+        request: {{ .Values.route.timeout }}
+---
+{{/*
+  The HTTP listener's only job: redirect to HTTPS.
+
+  FR-032 makes TLS blocking with no plain-HTTP fallback. This route is what
+  makes that a redirect rather than a refused connection — a much clearer thing
+  to diagnose — while ensuring port 80 is not a second way in.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hydra-https-redirect
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      namespace: {{ .Values.gateway.namespace }}
+      sectionName: http
+  hostnames:
+    - "*.{{ .Values.global.baseDomain }}"
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

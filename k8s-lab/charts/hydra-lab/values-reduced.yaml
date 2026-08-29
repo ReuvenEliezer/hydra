@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# Reduced-footprint overlay (FR-091, D18).
+#
+# For a workstation that cannot fit the full profile. Applied by
+# `make setup-reduced`, which prints exactly what it disables and — the half
+# that matters — WHICH SCENARIOS THAT MAKES UNAVAILABLE.
+#
+# THE RULE: a scenario lost here is reported SKIPPED-BY-CONFIGURATION, never
+# PASS. A test that silently stops checking is worse than a test that fails,
+# because the suite still reports green and nobody looks again.
+#
+# WHAT IS *NOT* REDUCED, and why each one stays:
+#
+#   Both services as real multi-instance Deployments   FR-069
+#   Postgres and Redis as real StatefulSets            FR-051
+#   Cilium, Gateway API, NetworkPolicy                 the subject matter
+#   Autoscaling                                        FR-070
+#   Every failure drill except the trace-dependent one
+#
+# Reducing any of those would produce a lab that runs and demonstrates something
+# else.
+# ---------------------------------------------------------------------------
+
+# --- Replicas: 2, and NEVER 1 ----------------------------------------------
+# Two is the FLOOR, not a compromise. FR-069's properties are unobservable on a
+# single replica:
+#
+#   SC-010  exactly one credential issued across concurrent rotations — trivially
+#           true with one process, and it would report PASS while testing nothing
+#   SC-011  a limit of N admits N across ALL replicas — there is nothing to share
+#           a limit across
+#
+# A single-replica lab would report both green. That is the specific failure D18
+# exists to prevent.
+auth:
+  replicas: 2
+  resources:
+    requests: {cpu: 150m, memory: 384Mi}
+    limits:   {memory: 768Mi}
+order:
+  replicas: 2
+  resources:
+    requests: {cpu: 150m, memory: 384Mi}
+    limits:   {memory: 768Mi}
+
+# minAvailable must stay below the replica count or every voluntary eviction is
+# blocked and a drain hangs forever.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Retained, with a lower ceiling. Autoscaling is part of what the lab teaches;
+# what shrinks is the headroom, not the mechanism.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+
+postgres:
+  storage: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits:   {memory: 384Mi}
+redis:
+  storage: 512Mi
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits:   {memory: 192Mi}
+
+# --- Observability: the agent stays ON --------------------------------------
+# Metrics and structured logs are how the lab is read, and they are cheap. What
+# reduced mode removes is the TRACE STORE (Tempo), which platform.sh skips
+# installing.
+#
+# CONSEQUENCE, stated where someone changing this file will see it:
+#   SC-012 — the end-to-end trace scenario — becomes UNAVAILABLE.
+#   tests/integration/trace-e2e.sh reports SKIPPED-BY-CONFIGURATION and exits 0.
+#   It is not passing. It was not tested.
+observability:
+  agentEnabled: true
+  tracesSampler: always_on
+  jsonLogs: true

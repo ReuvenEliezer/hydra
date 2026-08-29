@@ -1,0 +1,30 @@
+{{/*
+  auth-service ClusterIP Service (FR-045).
+
+  Three things resolve to this object, which is why it is worth its own file:
+    - the HTTPRoute's backendRefs
+    - order-service's JWKS fetch over cluster DNS
+      (auth-service.hydra-app.svc.cluster.local)
+    - the smoke suite's Service-existence check
+
+  The name is load-bearing. `AUTH_SERVICE_URL` in values.yaml spells out this
+  exact FQDN, so renaming this Service breaks JWKS validation in a way that
+  surfaces as "401 from order-service" and points at nothing useful.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: {{ .Values.global.appNamespace }}
+  labels:
+    {{- include "hydra-lab.labels" . | nindent 4 }}
+    {{- include "hydra-lab.selector" (dict "name" "auth-service") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "hydra-lab.selector" (dict "name" "auth-service") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.auth.port }}
+      targetPort: http
+      protocol: TCP

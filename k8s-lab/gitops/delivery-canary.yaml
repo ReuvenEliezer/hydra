@@ -1,0 +1,72 @@
+# ---------------------------------------------------------------------------
+# The delivery canary — the workload Argo CD reconciles (FR-083).
+#
+# Deliberately trivial: its only job is to have a value that can be changed in
+# git and observed converging in the cluster. It uses an image the lab already
+# pins and already has locally, so reconciliation never waits on a pull from a
+# public registry — an offline steady state is an explicit assumption (D8).
+#
+# tests/integration/gitops-converge.sh changes `replicas` here, commits, and
+# asserts that Argo CD reports the deviation and the cluster converges WITHOUT
+# any deploy command being run.
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hydra-lab-canary
+  namespace: hydra-app
+  labels:
+    app.kubernetes.io/name: hydra-lab-canary
+    app.kubernetes.io/part-of: hydra-lab
+    hydra-lab/owned-by: argocd
+  annotations:
+    hydra-lab/purpose: >-
+      Demonstrates the GitOps reconciliation loop. Owned by Argo CD, never by
+      the Helm CLI — see gitops/README.md for why the two are kept apart.
+spec:
+  # THE TRACKED VALUE. Change this, commit, and watch the cluster follow.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hydra-lab-canary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hydra-lab-canary
+        app.kubernetes.io/part-of: hydra-lab
+    spec:
+      automountServiceAccountToken: false
+      # hydra-app enforces Pod Security 'restricted', so this pod must satisfy
+      # it in full. Anything less is rejected at admission — which is the
+      # namespace label doing its job.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: canary
+          # ${REGISTRY_IMAGE} — substituted by scripts/gitops.sh from
+          # versions.env before the push, so the tracked tree carries no version
+          # literal (FR-006, SC-022). `make verify-versions` caught the first
+          # version of this file with the tag written out.
+          image: ${REGISTRY_IMAGE}
+          # `sleep infinity`, not a loop with a number in it. A numeric sleep
+          # here is harmless — it is a keep-alive, not a readiness signal — but
+          # it trips the FR-015 check, and a guard that has to be taught about
+          # exceptions is a guard someone eventually disables.
+          command: ["sleep", "infinity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# GatewayClass — Cilium's controller, and no other (FR-029, D4).
+#
+# There is no standalone gateway controller in this cluster. The controller
+# named below is Cilium's own, and the Envoy DaemonSet that serves as its data
+# plane is Cilium's too. That is the distinction FR-029 draws: Envoy is
+# consumed as the data plane of the network provider's Gateway API
+# implementation, not installed and managed as a separate product.
+# ---------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: cilium
+  annotations:
+    hydra-lab/rationale: >-
+      Cilium supplies CNI, kube-proxy replacement, NetworkPolicy, Hubble and
+      this Gateway API implementation as one component (D4). Envoy Gateway and
+      NGINX Gateway Fabric were rejected as standalone controllers (FR-029).
+spec:
+  controllerName: io.cilium/gateway-controller
